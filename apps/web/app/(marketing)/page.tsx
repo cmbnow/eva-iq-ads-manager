@@ -1,7 +1,6 @@
-import Image from 'next/image';
 import Link from 'next/link';
 
-import { ArrowRightIcon, LayoutDashboard } from 'lucide-react';
+import { ArrowRightIcon, LineChart } from 'lucide-react';
 
 import {
   CtaButton,
@@ -12,7 +11,6 @@ import {
   Hero,
   Pill,
 } from '@kit/ui/marketing';
-import { Trans } from '@kit/ui/trans';
 
 import { withI18n } from '~/lib/i18n/with-i18n';
 
@@ -22,87 +20,73 @@ function Home() {
       <div className={'container mx-auto'}>
         <Hero
           pill={
-            <Pill label={'New'}>
-              <span>The leading SaaS Starter Kit for ambitious developers</span>
+            <Pill label={'EVA IQ Signals'}>
+              <span>First-party signal, not a thin ad launcher</span>
             </Pill>
           }
           title={
             <>
-              <span>The ultimate SaaS Starter</span>
-              <span>for your next project</span>
+              <span>Meta ads that run</span>
+              <span>like the Foundry</span>
             </>
           }
           subtitle={
             <span>
-              Build and Ship a SaaS faster than ever before with the next-gen
-              SaaS Starter Kit. Ship your SaaS in days, not months.
+              EVA IQ analyzes your ad performance, writes the copy and creative,
+              and tells you exactly what to do next — powered by a first-party
+              signal engine that turns real buyers into your best-performing
+              audiences.
             </span>
           }
           cta={<MainCallToActionButton />}
-          image={
-            <Image
-              priority
-              className={
-                'dark:border-primary/10 rounded-2xl border border-gray-200'
-              }
-              width={3558}
-              height={2222}
-              src={`/images/dashboard.webp`}
-              alt={`App Image`}
-            />
-          }
         />
       </div>
 
       <div className={'container mx-auto'}>
-        <div
-          className={'flex flex-col space-y-16 xl:space-y-32 2xl:space-y-36'}
-        >
+        <div className={'flex flex-col space-y-16 xl:space-y-32 2xl:space-y-36'}>
           <FeatureShowcase
             heading={
               <>
                 <b className="font-semibold dark:text-white">
-                  The ultimate SaaS Starter Kit
+                  Owned data. Vertical depth. Outcomes you can see.
                 </b>
                 .{' '}
                 <span className="text-muted-foreground font-normal">
-                  Unleash your creativity and build your SaaS faster than ever
-                  with Makerkit.
+                  The parts a generic ad tool can&apos;t copy — built in from day
+                  one.
                 </span>
               </>
             }
             icon={
               <FeatureShowcaseIconContainer>
-                <LayoutDashboard className="h-5" />
-                <span>All-in-one solution</span>
+                <LineChart className="h-5" />
+                <span>One platform, end to end</span>
               </FeatureShowcaseIconContainer>
             }
           >
             <FeatureGrid>
               <FeatureCard
                 className={'relative col-span-2 overflow-hidden'}
-                label={'Beautiful Dashboard'}
-                description={`Makerkit provides a beautiful dashboard to manage your SaaS business.`}
+                label={'Meta Advisor'}
+                description={`Upload your ad export and get an instant, benchmark-graded analysis with a time-aware, step-by-step plan for every ad.`}
               />
 
               <FeatureCard
-                className={
-                  'relative col-span-2 w-full overflow-hidden lg:col-span-1'
-                }
-                label={'Authentication'}
-                description={`Makerkit provides a variety of providers to allow your users to sign in.`}
+                className={'relative col-span-2 w-full overflow-hidden lg:col-span-1'}
+                label={'First-party signal engine'}
+                description={`Turn real buyers into seed audiences and 1% lookalikes — the mechanism behind 7x–67x ROAS.`}
               />
 
               <FeatureCard
                 className={'relative col-span-2 overflow-hidden lg:col-span-1'}
-                label={'Multi Tenancy'}
-                description={`Multi tenant memberships for your SaaS business.`}
+                label={'Compliance built in'}
+                description={`Special Ad Category rules enforced automatically for housing, employment, credit, and finance.`}
               />
 
               <FeatureCard
                 className={'relative col-span-2 overflow-hidden'}
-                label={'Billing'}
-                description={`Makerkit supports multiple payment gateways to charge your customers.`}
+                label={'Outcome ownership'}
+                description={`Performance tied to revenue, not vanity metrics — your integrated P&L view across the campus.`}
               />
             </FeatureGrid>
           </FeatureShowcase>
@@ -118,12 +102,9 @@ function MainCallToActionButton() {
   return (
     <div className={'flex space-x-4'}>
       <CtaButton>
-        <Link href={'/auth/sign-up'}>
+        <Link href={'/auth/sign-in'}>
           <span className={'flex items-center space-x-0.5'}>
-            <span>
-              <Trans i18nKey={'common:getStarted'} />
-            </span>
-
+            <span>Sign in</span>
             <ArrowRightIcon
               className={
                 'animate-in fade-in slide-in-from-left-8 h-4' +
@@ -131,12 +112,6 @@ function MainCallToActionButton() {
               }
             />
           </span>
-        </Link>
-      </CtaButton>
-
-      <CtaButton variant={'link'}>
-        <Link href={'/contact'}>
-          <Trans i18nKey={'common:contactUs'} />
         </Link>
       </CtaButton>
     </div>

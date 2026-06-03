@@ -1,0 +1,513 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+
+import { Send, Sparkles, Upload } from 'lucide-react';
+
+import { Badge } from '@kit/ui/badge';
+import { Button } from '@kit/ui/button';
+import { Card, CardContent } from '@kit/ui/card';
+import { cn } from '@kit/ui/utils';
+
+import { type AdAnalysis, type AnalysisResult, analyzeMetaCsv } from '../_lib/analyze';
+import {
+  type ChatMessage,
+  type PlanStep,
+  askAdvisor,
+  getPlan,
+} from '../_lib/advisor-chat';
+import { type SnapshotMeta, saveAndCompare } from '../_lib/snapshots';
+
+const money = (n: number) =>
+  n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+function statusFor(ad: AdAnalysis): { label: string; variant: 'success' | 'warning' | 'info' } {
+  if (ad.daysUntilEnd !== null && ad.daysUntilEnd <= 3)
+    return { label: ad.daysUntilEnd <= 0 ? 'Ended' : `Ends ${ad.daysUntilEnd}d`, variant: 'warning' };
+  const r = ad.recommendation.toLowerCase();
+  if (r.includes('scale')) return { label: 'Scale', variant: 'success' };
+  if (r.includes('refresh') || r.includes('frequency') || r.includes('fatigue'))
+    return { label: 'Refresh', variant: 'warning' };
+  if (r.includes('above target') || r.includes('trim'))
+    return { label: 'Watch', variant: 'warning' };
+  return { label: 'Healthy', variant: 'info' };
+}
+
+export function MetaAdvisorClient() {
+  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [previous, setPrevious] = useState<SnapshotMeta | null>(null);
+  const [history, setHistory] = useState<SnapshotMeta[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    setError(null);
+    setSelected(null);
+    setPrevious(null);
+    setHistory([]);
+    file
+      .text()
+      .then((text) => {
+        const analysis = analyzeMetaCsv(text);
+        setResult(analysis);
+        setSaving(true);
+        saveAndCompare({
+          summary: analysis.summary,
+          fileName: file.name,
+          ads: analysis.ads.map((a) => ({
+            adName: a.adName,
+            adSetName: a.adSetName,
+            spend: a.spend,
+            purchases: a.purchases,
+            roas: a.roas,
+            cpp: a.cpp,
+            frequency: a.frequency,
+            daysUntilEnd: a.daysUntilEnd,
+            recommendation: a.recommendation,
+          })),
+        })
+          .then((res) => {
+            if (res.ok) {
+              setPrevious(res.previous);
+              setHistory(res.history);
+            }
+          })
+          .catch(() => {})
+          .finally(() => setSaving(false));
+      })
+      .catch((err) => {
+        setResult(null);
+        setError(err instanceof Error ? err.message : 'Could not read that file.');
+      });
+  }
+
+  return (
+    <div className={'space-y-5'}>
+      <Card>
+        <CardContent className={'flex flex-wrap items-center gap-3 py-4'}>
+          <label
+            className={
+              'border-input bg-background hover:bg-accent inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium'
+            }
+          >
+            <Upload className={'h-4 w-4'} />
+            {fileName ? 'Change CSV' : 'Upload Meta ads CSV'}
+            <input type={'file'} accept={'.csv,text/csv'} className={'hidden'} onChange={onFile} />
+          </label>
+          <p className={'text-muted-foreground text-xs'}>
+            {fileName ?? 'Export from Meta Ads Manager → Reports → Export table data (.csv). Nothing leaves your browser.'}
+          </p>
+          {error ? <p className={'text-destructive text-sm'}>{error}</p> : null}
+        </CardContent>
+      </Card>
+
+      {result ? (
+        <>
+          <div className={'text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-sm'}>
+            <span><strong className={'text-foreground'}>{result.summary.blendedRoas.toFixed(1)}x</strong> blended ROAS</span>
+            {result.summary.blendedCpp !== null ? (
+              <span><strong className={'text-foreground'}>{money(result.summary.blendedCpp)}</strong> / purchase</span>
+            ) : null}
+            <span><strong className={'text-foreground'}>{money(result.summary.totalSpend)}</strong> spend</span>
+            <span><strong className={'text-foreground'}>{result.summary.totalPurchases}</strong> purchases</span>
+            <span>{result.summary.reportStart} → {result.summary.reportEnd}</span>
+          </div>
+
+          {previous ? (
+            <ComparisonBar current={result.summary} previous={previous} />
+          ) : saving ? (
+            <p className={'text-muted-foreground text-sm'}>Saving & comparing to your last upload…</p>
+          ) : null}
+
+          <div className={'grid gap-4 lg:grid-cols-3'}>
+            <div className={'space-y-2 lg:col-span-1'}>
+              <p className={'text-sm font-semibold'}>Your ads — pick one</p>
+              {result.ads.map((ad, i) => {
+                const status = statusFor(ad);
+                const active = selected === i;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setSelected(i)}
+                    className={cn(
+                      'w-full rounded-lg border p-3 text-left transition-colors',
+                      active ? 'border-primary bg-accent' : 'hover:bg-accent/50',
+                    )}
+                  >
+                    <div className={'flex items-start justify-between gap-2'}>
+                      <span className={'line-clamp-2 text-sm font-medium'}>{ad.adName}</span>
+                      <Badge variant={status.variant}>{status.label}</Badge>
+                    </div>
+                    <div className={'text-muted-foreground mt-1 flex flex-wrap gap-3 text-xs'}>
+                      <span>{ad.roas.toFixed(1)}x ROAS</span>
+                      <span>{money(ad.spend)}</span>
+                      <span>freq {ad.frequency.toFixed(1)}</span>
+                      {ad.daysUntilEnd !== null ? (
+                        <span className={ad.daysUntilEnd <= 3 ? 'text-orange-500' : ''}>
+                          {ad.daysUntilEnd <= 0 ? 'ended' : `ends ${ad.daysUntilEnd}d`}
+                        </span>
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className={'lg:col-span-2'}>
+              {selected !== null ? (
+                <AdvisorPanel key={selected} ad={result.ads[selected]!} account={result.summary} />
+              ) : (
+                <Card>
+                  <CardContent className={'text-muted-foreground flex h-full items-center justify-center py-16 text-center text-sm'}>
+                    Pick an ad on the left to open its dashboard — performance, a step-by-step checklist, and a chat with EVA IQ.
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </div>
+
+          {history.length > 0 ? <HistoryList history={history} /> : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult['summary'] }) {
+  const dailySpend = account.periodDays > 0 ? ad.spend / account.periodDays : ad.spend;
+
+  const adCtx = {
+    adName: ad.adName,
+    adSet: ad.adSetName,
+    spend: ad.spend,
+    dailySpend,
+    purchases: ad.purchases,
+    roas: ad.roas,
+    costPerPurchase: ad.cpp,
+    frequency: ad.frequency,
+    optimizingFor: ad.resultType,
+    recommendation: ad.recommendation,
+    endsDate: ad.endsDate,
+    daysUntilEnd: ad.daysUntilEnd,
+  };
+  const accountCtx = {
+    period: `${account.reportStart} → ${account.reportEnd}`,
+    blendedRoas: account.blendedRoas,
+    blendedCostPerPurchase: account.blendedCpp,
+    totalSpend: account.totalSpend,
+  };
+
+  // Plan / checklist
+  const [steps, setSteps] = useState<PlanStep[] | null>(null);
+  const [bottomLine, setBottomLine] = useState('');
+  const [planErr, setPlanErr] = useState<string | null>(null);
+  const [done, setDone] = useState<boolean[]>([]);
+  const storageKey = `evaiq-plan-${account.reportStart}-${account.reportEnd}-${ad.adName}-${ad.adSetName}`;
+
+  // Chat
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [input, setInput] = useState('');
+  const [chatErr, setChatErr] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    void getPlan({ ad: adCtx, account: accountCtx }).then((res) => {
+      if (res.ok) {
+        setSteps(res.steps);
+        setBottomLine(res.bottomLine);
+        // restore checked state
+        try {
+          const saved = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
+          setDone(
+            Array.isArray(saved) && saved.length === res.steps.length
+              ? saved
+              : new Array(res.steps.length).fill(false),
+          );
+        } catch {
+          setDone(new Array(res.steps.length).fill(false));
+        }
+      } else {
+        setPlanErr(res.error);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [messages, chatBusy]);
+
+  function toggle(i: number) {
+    setDone((prev) => {
+      const next = [...prev];
+      next[i] = !next[i];
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
+
+  async function onSend() {
+    const text = input.trim();
+    if (!text || chatBusy) return;
+    setInput('');
+    const history = [...messages, { role: 'user' as const, content: text }];
+    setMessages(history);
+    setChatBusy(true);
+    setChatErr(null);
+    const doneTitles = (steps ?? []).filter((_, i) => done[i]).map((s) => s.title);
+    const res = await askAdvisor({ ad: adCtx, account: accountCtx, messages: history, doneSteps: doneTitles });
+    if (res.ok) setMessages([...history, { role: 'assistant', content: res.reply }]);
+    else setChatErr(res.error);
+    setChatBusy(false);
+  }
+
+  const doneCount = done.filter(Boolean).length;
+
+  return (
+    <Card className={'flex flex-col'}>
+      {/* Header */}
+      <div className={'border-b p-4'}>
+        <p className={'font-semibold'}>{ad.adName}</p>
+        <p className={'text-muted-foreground text-xs'}>{ad.adSetName}</p>
+        <div className={'text-muted-foreground mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs'}>
+          <span>{ad.purchases} purchases</span>
+          <span>~{money(dailySpend)}/day</span>
+          {ad.daysUntilEnd !== null ? (
+            <span className={ad.daysUntilEnd <= 3 ? 'font-medium text-orange-500' : ''}>
+              {ad.daysUntilEnd <= 0 ? 'event ended' : `ends in ${ad.daysUntilEnd} day${ad.daysUntilEnd === 1 ? '' : 's'}`}
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Performance bars */}
+      <div className={'space-y-3 border-b p-4'}>
+        <p className={'text-sm font-semibold'}>Performance at a glance</p>
+        <Bar label={'ROAS'} value={`${ad.roas.toFixed(1)}x`} fill={Math.min(ad.roas / 20, 1)} good={ad.roas >= 10} caption={'target 10x+'} />
+        <Bar label={'Cost / purchase'} value={ad.cpp !== null ? money(ad.cpp) : '—'} fill={ad.cpp !== null ? Math.min(ad.cpp / 16, 1) : 0} good={ad.cpp !== null && ad.cpp <= 8} caption={'target under $8'} />
+        <Bar label={'Frequency'} value={ad.frequency.toFixed(2)} fill={Math.min(ad.frequency / 5, 1)} good={ad.frequency < 3} caption={'keep under 3.0'} />
+      </div>
+
+      {/* Action plan checklist */}
+      <div className={'border-b p-4'}>
+        <div className={'mb-3 flex items-center justify-between'}>
+          <p className={'flex items-center gap-2 text-sm font-semibold'}>
+            <Sparkles className={'h-4 w-4'} /> Action plan
+          </p>
+          {steps ? (
+            <span className={'text-muted-foreground text-xs'}>{doneCount} of {steps.length} done</span>
+          ) : null}
+        </div>
+
+        {planErr ? <p className={'text-destructive text-sm'}>{planErr}</p> : null}
+        {!steps && !planErr ? (
+          <p className={'text-muted-foreground flex items-center gap-2 text-sm'}>
+            <Sparkles className={'h-4 w-4 animate-pulse'} /> EVA IQ is building your step-by-step plan…
+          </p>
+        ) : null}
+
+        {steps ? (
+          <div className={'space-y-2'}>
+            {steps.map((s, i) => (
+              <label
+                key={i}
+                className={cn(
+                  'flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm transition-colors',
+                  done[i] ? 'bg-muted/60 border-green-500/40' : 'hover:bg-accent/40',
+                )}
+              >
+                <input
+                  type={'checkbox'}
+                  checked={done[i] ?? false}
+                  onChange={() => toggle(i)}
+                  className={'mt-0.5 h-4 w-4 shrink-0'}
+                />
+                <span>
+                  <span className={cn('font-medium', done[i] ? 'text-muted-foreground line-through' : '')}>
+                    {s.title}
+                  </span>
+                  <span className={'text-muted-foreground block text-xs'}>{s.detail}</span>
+                </span>
+              </label>
+            ))}
+            {bottomLine ? (
+              <p className={'text-muted-foreground pt-1 text-sm italic'}>{bottomLine}</p>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      {/* Chat */}
+      <div className={'flex flex-col'}>
+        <div ref={scrollRef} className={'max-h-72 space-y-3 overflow-y-auto p-4'}>
+          {messages.length === 0 ? (
+            <p className={'text-muted-foreground text-sm'}>
+              Ask EVA IQ anything about this ad — e.g. “write me a new headline”, “what exact budget should I move here?”, “why is frequency a problem?”
+            </p>
+          ) : null}
+          {messages.map((m, i) => (
+            <div
+              key={i}
+              className={cn(
+                'max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap',
+                m.role === 'user' ? 'bg-primary text-primary-foreground ml-auto' : 'bg-muted',
+              )}
+            >
+              {m.content}
+            </div>
+          ))}
+          {chatBusy ? <p className={'text-muted-foreground text-xs'}>EVA IQ is typing…</p> : null}
+          {chatErr ? <p className={'text-destructive text-sm'}>{chatErr}</p> : null}
+        </div>
+        <div className={'flex items-center gap-2 border-t p-3'}>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onSend();
+            }}
+            placeholder={'Ask a question or give feedback…'}
+            className={
+              'border-input bg-background focus-visible:ring-ring flex-1 rounded-md border px-3 py-2 text-sm focus-visible:ring-1 focus-visible:outline-none'
+            }
+            disabled={chatBusy}
+          />
+          <Button size={'icon'} onClick={onSend} disabled={chatBusy || !input.trim()}>
+            <Send className={'h-4 w-4'} />
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function Bar({
+  label,
+  value,
+  fill,
+  good,
+  caption,
+}: {
+  label: string;
+  value: string;
+  fill: number;
+  good: boolean;
+  caption: string;
+}) {
+  return (
+    <div>
+      <div className={'mb-1 flex items-center justify-between text-xs'}>
+        <span className={'font-medium'}>{label}</span>
+        <span className={good ? 'text-green-600' : 'text-orange-500'}>{value}</span>
+      </div>
+      <div className={'bg-muted h-2 w-full overflow-hidden rounded-full'}>
+        <div
+          className={cn('h-full rounded-full', good ? 'bg-green-500' : 'bg-orange-500')}
+          style={{ width: `${Math.max(4, Math.min(100, fill * 100))}%` }}
+        />
+      </div>
+      <p className={'text-muted-foreground mt-0.5 text-[11px]'}>{caption}</p>
+    </div>
+  );
+}
+
+function ComparisonBar({
+  current,
+  previous,
+}: {
+  current: AnalysisResult['summary'];
+  previous: SnapshotMeta;
+}) {
+  return (
+    <Card>
+      <CardContent className={'py-4'}>
+        <p className={'mb-3 text-sm font-semibold'}>
+          Since your last upload{' '}
+          <span className={'text-muted-foreground font-normal'}>
+            ({previous.periodStart} → {previous.periodEnd})
+          </span>
+        </p>
+        <div className={'grid grid-cols-2 gap-4 sm:grid-cols-4'}>
+          <Delta label={'Blended ROAS'} cur={current.blendedRoas} prev={previous.blendedRoas} fmt={(n) => `${n.toFixed(1)}x`} higherIsBetter />
+          <Delta label={'Cost / purchase'} cur={current.blendedCpp} prev={previous.blendedCpp} fmt={money} higherIsBetter={false} />
+          <Delta label={'Spend'} cur={current.totalSpend} prev={previous.totalSpend} fmt={money} neutral />
+          <Delta label={'Purchases'} cur={current.totalPurchases} prev={previous.totalPurchases} fmt={(n) => String(Math.round(n))} higherIsBetter />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Delta({
+  label,
+  cur,
+  prev,
+  fmt,
+  higherIsBetter,
+  neutral,
+}: {
+  label: string;
+  cur: number | null;
+  prev: number | null;
+  fmt: (n: number) => string;
+  higherIsBetter?: boolean;
+  neutral?: boolean;
+}) {
+  const hasBoth = cur !== null && prev !== null;
+  const diff = hasBoth ? cur - prev : 0;
+  const up = diff > 0.0001;
+  const down = diff < -0.0001;
+  const good = neutral ? false : higherIsBetter ? up : down;
+  const bad = neutral ? false : higherIsBetter ? down : up;
+  const color = good ? 'text-green-600' : bad ? 'text-red-600' : 'text-muted-foreground';
+
+  return (
+    <div>
+      <p className={'text-muted-foreground text-xs'}>{label}</p>
+      <p className={'text-xl font-bold'}>{cur !== null ? fmt(cur) : '—'}</p>
+      {hasBoth && (up || down) ? (
+        <p className={cn('text-xs font-medium', color)}>
+          {up ? '▲' : '▼'} {fmt(Math.abs(diff))} vs {fmt(prev)}
+        </p>
+      ) : (
+        <p className={'text-muted-foreground text-xs'}>{hasBoth ? 'no change' : 'first upload'}</p>
+      )}
+    </div>
+  );
+}
+
+function HistoryList({ history }: { history: SnapshotMeta[] }) {
+  return (
+    <Card>
+      <CardContent className={'py-4'}>
+        <p className={'mb-3 text-sm font-semibold'}>Upload history</p>
+        <div className={'divide-y text-sm'}>
+          {history.map((h) => (
+            <div key={h.id} className={'flex flex-wrap items-center justify-between gap-2 py-2'}>
+              <span>{h.periodStart} → {h.periodEnd}</span>
+              <span className={'text-muted-foreground flex gap-3 text-xs'}>
+                <span>{h.blendedRoas !== null ? `${h.blendedRoas.toFixed(1)}x ROAS` : ''}</span>
+                <span>{h.blendedCpp !== null ? `${money(h.blendedCpp)}/purch` : ''}</span>
+                <span>{h.totalPurchases ?? ''} purchases</span>
+                <span>{new Date(h.uploadedAt).toLocaleDateString()}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

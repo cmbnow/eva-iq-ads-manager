@@ -70,15 +70,214 @@ export type Database = {
         };
         Relationships: [];
       };
+      tenants: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          is_active: boolean;
+          name: string;
+          notes: string | null;
+          public_data: Json;
+          slug: string;
+          special_ad_category: Database['public']['Enums']['special_ad_category'];
+          updated_at: string;
+          updated_by: string | null;
+          vertical: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          is_active?: boolean;
+          name: string;
+          notes?: string | null;
+          public_data?: Json;
+          slug: string;
+          special_ad_category?: Database['public']['Enums']['special_ad_category'];
+          updated_at?: string;
+          updated_by?: string | null;
+          vertical?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          is_active?: boolean;
+          name?: string;
+          notes?: string | null;
+          public_data?: Json;
+          slug?: string;
+          special_ad_category?: Database['public']['Enums']['special_ad_category'];
+          updated_at?: string;
+          updated_by?: string | null;
+          vertical?: string | null;
+        };
+        Relationships: [];
+      };
+      tenant_members: {
+        Row: {
+          created_at: string;
+          id: string;
+          role: Database['public']['Enums']['tenant_member_role'];
+          tenant_id: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          role?: Database['public']['Enums']['tenant_member_role'];
+          tenant_id: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          role?: Database['public']['Enums']['tenant_member_role'];
+          tenant_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'tenant_members_tenant_id_fkey';
+            columns: ['tenant_id'];
+            isOneToOne: false;
+            referencedRelation: 'tenants';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      tenant_platform_connections: {
+        Row: {
+          capability_tier: Database['public']['Enums']['capability_tier'];
+          config: Json;
+          connected_at: string | null;
+          connection_status: Database['public']['Enums']['platform_connection_status'];
+          created_at: string;
+          external_account_id: string | null;
+          external_account_name: string | null;
+          id: string;
+          is_enabled: boolean;
+          platform: Database['public']['Enums']['ad_platform'];
+          tenant_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          capability_tier?: Database['public']['Enums']['capability_tier'];
+          config?: Json;
+          connected_at?: string | null;
+          connection_status?: Database['public']['Enums']['platform_connection_status'];
+          created_at?: string;
+          external_account_id?: string | null;
+          external_account_name?: string | null;
+          id?: string;
+          is_enabled?: boolean;
+          platform?: Database['public']['Enums']['ad_platform'];
+          tenant_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          capability_tier?: Database['public']['Enums']['capability_tier'];
+          config?: Json;
+          connected_at?: string | null;
+          connection_status?: Database['public']['Enums']['platform_connection_status'];
+          created_at?: string;
+          external_account_id?: string | null;
+          external_account_name?: string | null;
+          id?: string;
+          is_enabled?: boolean;
+          platform?: Database['public']['Enums']['ad_platform'];
+          tenant_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'tenant_platform_connections_tenant_id_fkey';
+            columns: ['tenant_id'];
+            isOneToOne: false;
+            referencedRelation: 'tenants';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      tenant_data_records: {
+        Row: {
+          collected_at: string | null;
+          consent_source: string | null;
+          consent_status: Database['public']['Enums']['consent_status'];
+          created_at: string;
+          external_ref: string | null;
+          id: string;
+          is_first_party: boolean;
+          metadata: Json;
+          record_type: string;
+          source: string;
+          tenant_id: string;
+        };
+        Insert: {
+          collected_at?: string | null;
+          consent_source?: string | null;
+          consent_status?: Database['public']['Enums']['consent_status'];
+          created_at?: string;
+          external_ref?: string | null;
+          id?: string;
+          is_first_party?: boolean;
+          metadata?: Json;
+          record_type: string;
+          source: string;
+          tenant_id: string;
+        };
+        Update: {
+          collected_at?: string | null;
+          consent_source?: string | null;
+          consent_status?: Database['public']['Enums']['consent_status'];
+          created_at?: string;
+          external_ref?: string | null;
+          id?: string;
+          is_first_party?: boolean;
+          metadata?: Json;
+          record_type?: string;
+          source?: string;
+          tenant_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'tenant_data_records_tenant_id_fkey';
+            columns: ['tenant_id'];
+            isOneToOne: false;
+            referencedRelation: 'tenants';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
     };
     Views: {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      has_tenant_access: {
+        Args: {
+          p_tenant_id: string;
+        };
+        Returns: boolean;
+      };
     };
     Enums: {
-      [_ in never]: never;
+      ad_platform: 'meta' | 'google' | 'youtube' | 'tiktok';
+      capability_tier: 'advisor' | 'managed' | 'autonomous';
+      consent_status: 'granted' | 'denied' | 'unknown';
+      platform_connection_status:
+        | 'not_connected'
+        | 'connected'
+        | 'disconnected'
+        | 'error';
+      special_ad_category:
+        | 'none'
+        | 'housing'
+        | 'employment'
+        | 'credit'
+        | 'financial';
+      tenant_member_role: 'owner' | 'admin' | 'member';
     };
     CompositeTypes: {
       [_ in never]: never;

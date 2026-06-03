@@ -1,0 +1,81 @@
+<svg viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EVAIQ Ads Manager logo">
+  <defs>
+    <!-- Outer ring: orange (top-left) -> cyan (bottom-right) -->
+    <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"  stop-color="#FF9233"/>
+      <stop offset="34%" stop-color="#FB7A12"/>
+      <stop offset="58%" stop-color="#13A2B2"/>
+      <stop offset="100%" stop-color="#22DDE3"/>
+    </linearGradient>
+    <!-- Navy field with depth -->
+    <radialGradient id="field" cx="42%" cy="34%" r="78%">
+      <stop offset="0%"  stop-color="#0F2438"/>
+      <stop offset="55%" stop-color="#06121F"/>
+      <stop offset="100%" stop-color="#01070E"/>
+    </radialGradient>
+    <linearGradient id="cyanBar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#39E6EC"/>
+      <stop offset="100%" stop-color="#0FA0AE"/>
+    </linearGradient>
+    <linearGradient id="orangeGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FF9A3D"/>
+      <stop offset="100%" stop-color="#F26A05"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3"/>
+    </filter>
+  </defs>
+
+  <!-- BADGE -->
+  <circle cx="300" cy="300" r="288" fill="none" stroke="url(#ringGrad)" stroke-width="9" opacity="0.35" filter="url(#soft)"/>
+  <circle cx="300" cy="300" r="285" fill="url(#field)" stroke="url(#ringGrad)" stroke-width="15"/>
+  <circle cx="300" cy="300" r="268" fill="none" stroke="#16C2CB" stroke-width="1.4" opacity="0.30"/>
+
+  <!-- ============ HERO EMBLEM:  E | bars | Q ============ -->
+  <g>
+    <!-- E (white, geometric) -->
+    <g fill="#FAFAFA">
+      <rect x="188" y="150" width="25" height="132" rx="3"/>
+      <rect x="188" y="150" width="74" height="25" rx="3"/>
+      <rect x="188" y="209" width="58" height="23" rx="3"/>
+      <rect x="188" y="257" width="74" height="25" rx="3"/>
+    </g>
+    <!-- ascending signal bars (cyan) -->
+    <g fill="url(#cyanBar)">
+      <rect x="276" y="238" width="20" height="44" rx="7"/>
+      <rect x="304" y="206" width="20" height="76" rx="7"/>
+      <rect x="332" y="170" width="20" height="112" rx="7"/>
+    </g>
+    <!-- Q (orange) -->
+    <circle cx="392" cy="216" r="44" fill="none" stroke="url(#orangeGrad)" stroke-width="25"/>
+    <rect x="402" y="236" width="26" height="62" rx="13" fill="url(#orangeGrad)" transform="rotate(-42 415 267)"/>
+  </g>
+
+  <!-- swoosh underline -->
+  <path d="M180 312 Q300 350 420 296" fill="none" stroke="#16C2CB" stroke-width="5" stroke-linecap="round" opacity="0.95"/>
+
+  <!-- ============ WORDMARK (two anchored pieces meet at x=372 -> always tight) ============ -->
+  <text x="372" y="378" text-anchor="end"
+        font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-weight="800" font-size="58" letter-spacing="2" fill="#FAFAFA">EVAI</text>
+  <text x="373" y="378" text-anchor="start"
+        font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-weight="800" font-size="58" letter-spacing="2" fill="#FB7A12">Q</text>
+
+  <!-- tagline with dividers -->
+  <line x1="138" y1="408" x2="176" y2="408" stroke="#16C2CB" stroke-width="2.2"/>
+  <line x1="424" y1="408" x2="462" y2="408" stroke="#16C2CB" stroke-width="2.2"/>
+  <text x="300" y="415" text-anchor="middle"
+        font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-weight="600" font-size="21" letter-spacing="7" fill="#16C2CB">ADS MANAGER</text>
+
+  <!-- ============ BULLSEYE + RISING ARROW ICON ============ -->
+  <g>
+    <circle cx="300" cy="488" r="42" fill="none" stroke="#16C2CB" stroke-width="5"/>
+    <circle cx="300" cy="488" r="26" fill="none" stroke="#16C2CB" stroke-width="5"/>
+    <circle cx="300" cy="488" r="9.5" fill="url(#orangeGrad)"/>
+    <!-- rising arrow into the bullseye center -->
+    <line x1="256" y1="536" x2="296" y2="496" stroke="url(#orangeGrad)" stroke-width="7" stroke-linecap="round"/>
+    <path d="M300 492 L286 490 L288 504 Z" fill="url(#orangeGrad)"/>
+  </g>
+</svg>

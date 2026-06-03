@@ -9,14 +9,12 @@ function LogoImage({
   width?: number;
 }) {
   return (
-    <span
-      className={cn(
-        'text-lg font-bold tracking-tight whitespace-nowrap',
-        className,
-      )}
-    >
-      EVA<span className={'text-primary'}> IQ</span>
-    </span>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={'/images/evaiq-logo.svg'}
+      alt={'EVA IQ Ads Manager'}
+      className={cn('h-10 w-auto', className)}
+    />
   );
 }
 

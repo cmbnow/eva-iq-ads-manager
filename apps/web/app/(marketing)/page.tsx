@@ -20,22 +20,23 @@ function Home() {
       <div className={'container mx-auto'}>
         <Hero
           pill={
-            <Pill label={'EVA IQ Signals'}>
-              <span>First-party signal, not a thin ad launcher</span>
+            <Pill label={'EVA IQ'}>
+              <span>Ads Manager</span>
             </Pill>
           }
           title={
             <>
-              <span>Meta ads that run</span>
-              <span>like the Foundry</span>
+              <span>Stop guessing on your Meta ads.</span>
+              <span>Know what works—and what to do next.</span>
             </>
           }
           subtitle={
             <span>
-              EVA IQ analyzes your ad performance, writes the copy and creative,
-              and tells you exactly what to do next — powered by a first-party
-              signal engine that turns real buyers into your best-performing
-              audiences.
+              EVA IQ reads your ad results and tells you, in plain English,
+              what&apos;s making money, what&apos;s bleeding it, and exactly what
+              to do next—then writes your next ads and builds audiences from your
+              real buyers. The same system that took one venue from 2.5x to 9x+
+              on its ad spend.
             </span>
           }
           cta={<MainCallToActionButton />}
@@ -48,45 +49,44 @@ function Home() {
             heading={
               <>
                 <b className="font-semibold dark:text-white">
-                  Owned data. Vertical depth. Outcomes you can see.
-                </b>
-                .{' '}
+                  Not a button that launches ads. A system that makes them work.
+                </b>{' '}
                 <span className="text-muted-foreground font-normal">
-                  The parts a generic ad tool can&apos;t copy — built in from day
-                  one.
+                  Real numbers, real audiences, and a clear answer to “what do I
+                  do next?”
                 </span>
               </>
             }
             icon={
               <FeatureShowcaseIconContainer>
                 <LineChart className="h-5" />
-                <span>One platform, end to end</span>
+                <span>Built for owners, not ad nerds</span>
               </FeatureShowcaseIconContainer>
             }
           >
             <FeatureGrid>
               <FeatureCard
                 className={'relative col-span-2 overflow-hidden'}
-                label={'Meta Advisor'}
-                description={`Upload your ad export and get an instant, benchmark-graded analysis with a time-aware, step-by-step plan for every ad.`}
+                label={'See what’s actually working'}
+                description={`Upload your ad report and get a plain-English grade on every ad—plus a step-by-step plan for exactly what to do this week.`}
               />
 
               <FeatureCard
                 className={'relative col-span-2 w-full overflow-hidden lg:col-span-1'}
-                label={'First-party signal engine'}
-                description={`Turn real buyers into seed audiences and 1% lookalikes — the mechanism behind 7x–67x ROAS.`}
+                label={'Audiences from your real buyers'}
+                description={`EVA IQ turns your real customers into lookalike audiences on Meta—the engine behind the biggest winners.`}
               />
 
               <FeatureCard
                 className={'relative col-span-2 overflow-hidden lg:col-span-1'}
-                label={'Compliance built in'}
-                description={`Special Ad Category rules enforced automatically for housing, employment, credit, and finance.`}
+                label={'Never break the rules by accident'}
+                description={`For housing, jobs, credit, and finance, EVA IQ keeps your ads inside Meta’s strict rules automatically.`}
               />
 
               <FeatureCard
                 className={'relative col-span-2 overflow-hidden'}
-                label={'Outcome ownership'}
-                description={`Performance tied to revenue, not vanity metrics — your integrated P&L view across the campus.`}
+                label={'Measured against real revenue'}
+                description={`Results tied to actual sales, not vanity metrics—so you always know what your ad spend is really worth.`}
               />
             </FeatureGrid>
           </FeatureShowcase>

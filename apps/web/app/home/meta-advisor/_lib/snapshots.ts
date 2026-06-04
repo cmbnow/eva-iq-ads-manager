@@ -86,6 +86,49 @@ export async function getSnapshotAnalysis(
   return { summary, ads, highlights: [] };
 }
 
+export type TrendPoint = {
+  period: string;
+  roas: number | null;
+  cpp: number | null;
+  frequency: number | null;
+};
+
+/** ROAS / cost-per-purchase / frequency for one ad across all saved periods. */
+export async function getTrendSeries(
+  adName: string,
+  adSetName: string,
+): Promise<TrendPoint[]> {
+  const supabase = getSupabaseServerClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any;
+  const tenantId = await firstTenantId(supabase);
+  if (!tenantId) return [];
+
+  const { data } = await db
+    .from('ad_report_snapshots')
+    .select('period_end, ads')
+    .eq('tenant_id', tenantId)
+    .order('period_end', { ascending: true })
+    .limit(24);
+
+  const points: TrendPoint[] = [];
+  for (const row of (data ?? []) as Record<string, unknown>[]) {
+    const ads = (row.ads as AdAnalysis[]) ?? [];
+    const match = ads.find(
+      (a) => a.adName === adName && a.adSetName === adSetName,
+    );
+    if (match) {
+      points.push({
+        period: String(row.period_end ?? ''),
+        roas: match.roas ?? null,
+        cpp: match.cpp ?? null,
+        frequency: match.frequency ?? null,
+      });
+    }
+  }
+  return points;
+}
+
 export async function saveAndCompare(input: {
   summary: AccountSummary;
   ads: AdAnalysis[];

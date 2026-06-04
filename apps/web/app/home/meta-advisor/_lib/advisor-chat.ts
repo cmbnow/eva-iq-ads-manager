@@ -1,5 +1,7 @@
 'use server';
 
+import { callClaude, extractJson } from '~/lib/server/ai';
+
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
 export type PlanStep = { title: string; detail: string };
@@ -17,6 +19,8 @@ export type AdContext = {
   recommendation: string;
   endsDate: string;
   daysUntilEnd: number | null;
+  adSetWeeklyPurchases: number;
+  icSwitchQualifies: boolean;
 };
 
 export type AccountContext = {
@@ -31,8 +35,6 @@ export type PlanResult =
   | { ok: true; steps: PlanStep[]; bottomLine: string }
   | { ok: false; error: string };
 
-const MODEL = 'claude-sonnet-4-6';
-
 function buildSystem(ad: AdContext, account: AccountContext): string {
   return `You are EVA IQ, a Meta ads advisor for "The Foundry at Basic City Beer Co." — a live-music venue & hospitality space in Waynesboro, VA that sells event tickets (SeeTickets / TicketTailor). It uses FIRST-PARTY audiences only (past buyers, SeeTickets buyers, Hive buyers, and 1% lookalikes seeded from them) — never third-party/purchased data.
 
@@ -43,14 +45,25 @@ MONEY RULE (critical):
 - SCALE GRADUALLY: never increase a daily budget by more than ~30–40% in a single step. Larger jumps reset Meta's learning phase and can tank a winning ad — so step it up over time. Example: if it's at ~$1/day, recommend "raise to about $1.30/day" (not $3/day), then step up again in a week. If it's at ~$8/day, recommend ~$10–11/day.
 - BE PRECISE: never exaggerate a number. If cost/purchase is $2.74 against an $8 target, that's "about 3x under target," not 4x. Double-check every multiple and dollar figure.
 
-TIMELINE RULE (critical): Tailor advice to the days remaining. If the event ends within ~4 days, do NOT recommend producing new creative or multi-day check-ins — there's no time. Instead: adjust budget on what's converting, ride the final push, and capture these buyers as a first-party seed for the NEXT event's lookalike. Only suggest new creative / A-B tests when there's a week+ of runway.
+INITIATE-CHECKOUT vs PURCHASE RULE (critical, non-negotiable):
+- This account optimizes ad sets on Initiate Checkout until a SINGLE AD SET reaches ~50 Purchase events in a rolling 7-day window. ONLY then switch THAT ad set to Purchase optimization.
+- The 50/week threshold is PER AD SET — never account-wide, never multi-week totals.
+- THIS ad set is pacing ~${ad.adSetWeeklyPurchases.toFixed(1)} purchases/week, which ${ad.icSwitchQualifies ? 'CLEARS' : 'does NOT clear'} the 50/week threshold.${
+    ad.icSwitchQualifies
+      ? ' So a switch to Purchase optimization is justified for this ad set.'
+      : ' So you MUST hold on Initiate Checkout. Do NOT recommend switching to Purchase, no matter how high the raw purchase count looks.'
+  }
+- NEVER give generic "you have enough purchases, switch to Purchase" advice.
+
+TIMELINE RULE: Tailor advice to the days remaining. If the event ends within ~4 days, do NOT recommend producing new creative or multi-day check-ins — there's no time. Instead adjust budget on what's converting, ride the final push, and capture these buyers as a first-party seed for the NEXT event's lookalike. Only suggest new creative / A-B tests when there's a week+ of runway.
 
 SELECTED AD
 - Name: ${ad.adName}
 - Ad set / audience: ${ad.adSet}
 - Total spend this period: $${ad.spend.toFixed(2)}
 - Recent daily spend: ~$${ad.dailySpend.toFixed(2)}/day
-- Purchases: ${ad.purchases}
+- Purchases (this ad): ${ad.purchases}
+- This ad set's pace: ~${ad.adSetWeeklyPurchases.toFixed(1)} purchases/week
 - ROAS: ${ad.roas.toFixed(2)}x
 - Cost per purchase: ${ad.costPerPurchase !== null ? '$' + ad.costPerPurchase.toFixed(2) : 'n/a'}
 - Frequency: ${ad.frequency.toFixed(2)}
@@ -66,62 +79,19 @@ ACCOUNT (context): period ${account.period}, blended ROAS ${account.blendedRoas.
 Benchmarks: cost/purchase target under $8; frequency under 3.0 (above = fatigue); ROAS 10x+ is strong for this venue.`;
 }
 
-function extractJson(text: string): string {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenced?.[1]) return fenced[1].trim();
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start !== -1 && end !== -1 && end > start) return text.slice(start, end + 1);
-  return text;
-}
-
-async function callClaude(body: object): Promise<
-  { ok: true; text: string } | { ok: false; error: string }
-> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return { ok: false, error: 'Missing ANTHROPIC_API_KEY on the server.' };
-
-  let response: Response;
-  try {
-    response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify(body),
-    });
-  } catch {
-    return { ok: false, error: 'Could not reach the Claude API.' };
-  }
-
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    return { ok: false, error: `Claude API error (${response.status}). ${detail.slice(0, 200)}` };
-  }
-
-  const data = (await response.json()) as {
-    content?: Array<{ type: string; text?: string }>;
-  };
-  const text = data.content?.map((b) => b.text ?? '').join('').trim() ?? '';
-  return { ok: true, text };
-}
-
-/** Structured, checkbox-ready action plan for a single ad. */
 export async function getPlan(params: {
   ad: AdContext;
   account: AccountContext;
 }): Promise<PlanResult> {
   const res = await callClaude({
-    model: MODEL,
-    max_tokens: 1200,
+    feature: 'advisor_plan',
+    maxTokens: 1200,
     system: buildSystem(params.ad, params.account),
     messages: [
       {
         role: 'user',
         content:
-          'Give me a step-by-step action plan for THIS ad as JSON ONLY (no markdown, no fences) matching exactly: {"steps":[{"title":string,"detail":string}],"bottomLine":string}. 3–6 steps. Each "title" is a short concrete action the owner can check off (include EXACT dollar budgets where relevant, never percentages). Each "detail" is one plain sentence of why/how. "bottomLine" is one sentence.',
+          'Give me a step-by-step action plan for THIS ad as JSON ONLY (no markdown, no fences) matching exactly: {"steps":[{"title":string,"detail":string}],"bottomLine":string}. 3–6 steps. Each "title" is a short concrete action the owner can check off (include EXACT dollar budgets where relevant, never percentages; respect the Initiate-Checkout-vs-Purchase rule). Each "detail" is one plain sentence of why/how. "bottomLine" is one sentence.',
       },
     ],
   });
@@ -143,7 +113,6 @@ export async function getPlan(params: {
   }
 }
 
-/** Free-form Q&A about the ad. Aware of which plan steps are already done. */
 export async function askAdvisor(params: {
   ad: AdContext;
   account: AccountContext;
@@ -158,8 +127,8 @@ export async function askAdvisor(params: {
   }
 
   const res = await callClaude({
-    model: MODEL,
-    max_tokens: 1024,
+    feature: 'advisor_chat',
+    maxTokens: 1024,
     system,
     messages: params.messages.map((m) => ({ role: m.role, content: m.content })),
   });

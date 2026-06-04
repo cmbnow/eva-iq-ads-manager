@@ -13,6 +13,8 @@ const PathsSchema = z.object({
     home: z.string().min(1),
     clients: z.string().min(1),
     metaAdvisor: z.string().min(1),
+    chat: z.string().min(1),
+    campaigns: z.string().min(1),
     profileSettings: z.string().min(1),
   }),
 });
@@ -30,6 +32,8 @@ const pathsConfig = PathsSchema.parse({
     home: '/home',
     clients: '/home/clients',
     metaAdvisor: '/home/meta-advisor',
+    chat: '/home/chat',
+    campaigns: '/home/campaigns',
     profileSettings: '/home/settings',
   },
 } satisfies z.infer<typeof PathsSchema>);

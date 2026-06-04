@@ -34,9 +34,15 @@ export type AdAnalysis = {
   qualityRanking: string;
   endsDate: string; // event/ad end date from the "Ends" column
   daysUntilEnd: number | null; // days from today until it ends
+  adSetWeeklyPurchases: number; // this ad set's purchases per 7-day window
+  icSwitchQualifies: boolean; // ad set clears ~50 purchases/week => Purchase switch ok
   flags: Flag[];
   recommendation: string;
 };
+
+// Confirmed threshold: switch an AD SET to Purchase optimization only when it
+// individually reaches this many Purchase events per rolling 7-day window.
+export const PURCHASE_SWITCH_WEEKLY_THRESHOLD = 50;
 
 export type AccountSummary = {
   totalSpend: number;
@@ -267,6 +273,8 @@ export function analyzeMetaCsv(text: string): AnalysisResult {
       qualityRanking: quality,
       endsDate,
       daysUntilEnd,
+      adSetWeeklyPurchases: 0,
+      icSwitchQualifies: false,
       flags,
       recommendation,
     });
@@ -290,6 +298,25 @@ export function analyzeMetaCsv(text: string): AnalysisResult {
     if (!Number.isNaN(ds.getTime()) && !Number.isNaN(de.getTime())) {
       periodDays = Math.max(1, Math.round((de.getTime() - ds.getTime()) / 86400000) + 1);
     }
+  }
+
+  // Initiate-Checkout vs Purchase: a Purchase switch is justified ONLY for an
+  // ad set that individually clears ~50 purchases per 7-day window. Aggregate by
+  // ad set (NEVER account-wide) and compute the per-week pace.
+  const adSetPurchases = new Map<string, number>();
+  for (const a of ads) {
+    adSetPurchases.set(
+      a.adSetName,
+      (adSetPurchases.get(a.adSetName) ?? 0) + a.purchases,
+    );
+  }
+  const weeksInPeriod = periodDays / 7;
+  for (const a of ads) {
+    const setTotal = adSetPurchases.get(a.adSetName) ?? a.purchases;
+    a.adSetWeeklyPurchases =
+      weeksInPeriod > 0 ? setTotal / weeksInPeriod : setTotal;
+    a.icSwitchQualifies =
+      a.adSetWeeklyPurchases >= PURCHASE_SWITCH_WEEKLY_THRESHOLD;
   }
 
   const summary: AccountSummary = {

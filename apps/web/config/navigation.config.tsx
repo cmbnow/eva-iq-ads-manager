@@ -1,4 +1,11 @@
-import { Building2, Home, LineChart, User } from 'lucide-react';
+import {
+  Building2,
+  Home,
+  LineChart,
+  Megaphone,
+  MessageSquare,
+  User,
+} from 'lucide-react';
 import { z } from 'zod';
 
 import { NavigationConfigSchema } from '@kit/ui/navigation-schema';
@@ -26,6 +33,16 @@ const routes = [
         label: 'Meta Advisor',
         path: pathsConfig.app.metaAdvisor,
         Icon: <LineChart className={iconClasses} />,
+      },
+      {
+        label: 'Chat',
+        path: pathsConfig.app.chat,
+        Icon: <MessageSquare className={iconClasses} />,
+      },
+      {
+        label: 'Ad Composer',
+        path: pathsConfig.app.campaigns,
+        Icon: <Megaphone className={iconClasses} />,
       },
     ],
   },

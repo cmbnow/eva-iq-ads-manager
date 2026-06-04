@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { History, Send, Sparkles, Upload } from 'lucide-react';
+import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { Badge } from '@kit/ui/badge';
 import { Button } from '@kit/ui/button';
@@ -18,24 +19,67 @@ import {
 } from '../_lib/advisor-chat';
 import {
   type SnapshotMeta,
+  type TrendPoint,
   getHistory,
   getSnapshotAnalysis,
+  getTrendSeries,
   saveAndCompare,
 } from '../_lib/snapshots';
 
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
-function statusFor(ad: AdAnalysis): { label: string; variant: 'success' | 'warning' | 'info' } {
-  if (ad.daysUntilEnd !== null && ad.daysUntilEnd <= 3)
-    return { label: ad.daysUntilEnd <= 0 ? 'Ended' : `Ends ${ad.daysUntilEnd}d`, variant: 'warning' };
-  const r = ad.recommendation.toLowerCase();
-  if (r.includes('scale')) return { label: 'Scale', variant: 'success' };
-  if (r.includes('refresh') || r.includes('frequency') || r.includes('fatigue'))
-    return { label: 'Refresh', variant: 'warning' };
-  if (r.includes('above target') || r.includes('trim'))
-    return { label: 'Watch', variant: 'warning' };
-  return { label: 'Healthy', variant: 'info' };
+// Explicit, documented badge logic (§7.4). Each badge states the exact rule
+// that produced it so the user can trust acting on it (shown on hover).
+function statusFor(ad: AdAnalysis): {
+  label: string;
+  variant: 'success' | 'warning' | 'info';
+  reason: string;
+} {
+  const cpp = ad.cpp;
+  const cppTxt = cpp !== null ? `$${cpp.toFixed(2)}` : '—';
+
+  if (ad.daysUntilEnd !== null && ad.daysUntilEnd <= 3) {
+    return {
+      label: ad.daysUntilEnd <= 0 ? 'Ended' : `Ends ${ad.daysUntilEnd}d`,
+      variant: 'warning',
+      reason:
+        ad.daysUntilEnd <= 0
+          ? 'Event has ended — stop spend and capture the buyers as a seed.'
+          : `Event ends in ${ad.daysUntilEnd} day(s): final-push window. No time for new creative — ride budget on what converts.`,
+    };
+  }
+  if (
+    ad.roas >= 10 &&
+    ad.frequency < 3 &&
+    (cpp === null || cpp <= 8) &&
+    (ad.daysUntilEnd === null || ad.daysUntilEnd > 7)
+  ) {
+    return {
+      label: 'Scale',
+      variant: 'success',
+      reason: `Scale = ROAS ${ad.roas.toFixed(1)}x (≥10) AND frequency ${ad.frequency.toFixed(2)} (<3.0) AND cost/purchase ${cppTxt} (≤$8) AND runway >7 days. Fund it more — gradually (≤~30–40%/step).`,
+    };
+  }
+  if (ad.frequency >= 3) {
+    return {
+      label: 'Refresh',
+      variant: 'warning',
+      reason: `Refresh = frequency ${ad.frequency.toFixed(2)} (≥3.0). The same people are seeing it too often — refresh creative or cap frequency.`,
+    };
+  }
+  if (cpp !== null && cpp > 8) {
+    return {
+      label: 'Watch',
+      variant: 'warning',
+      reason: `Watch = cost/purchase ${cppTxt} (>$8 target). Tighten audience/creative or trim budget.`,
+    };
+  }
+  return {
+    label: 'Healthy',
+    variant: 'info',
+    reason: `Healthy = ROAS ${ad.roas.toFixed(1)}x, frequency ${ad.frequency.toFixed(2)} (<3.0), cost/purchase ${cppTxt}. Steady — keep it running.`,
+  };
 }
 
 export function MetaAdvisorClient() {
@@ -160,7 +204,7 @@ export function MetaAdvisorClient() {
                   >
                     <div className={'flex items-start justify-between gap-2'}>
                       <span className={'line-clamp-2 text-sm font-medium'}>{ad.adName}</span>
-                      <Badge variant={status.variant} className={'shrink-0'}>{status.label}</Badge>
+                      <Badge variant={status.variant} className={'shrink-0'} title={status.reason}>{status.label}</Badge>
                     </div>
                     {ad.adSetName ? (
                       <p className={'text-muted-foreground line-clamp-1 text-xs'}>{ad.adSetName}</p>
@@ -221,6 +265,8 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
     recommendation: ad.recommendation,
     endsDate: ad.endsDate,
     daysUntilEnd: ad.daysUntilEnd,
+    adSetWeeklyPurchases: ad.adSetWeeklyPurchases,
+    icSwitchQualifies: ad.icSwitchQualifies,
   };
   const accountCtx = {
     period: `${account.reportStart} → ${account.reportEnd}`,
@@ -241,6 +287,14 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
   const [chatErr, setChatErr] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const started = useRef(false);
+
+  const [trend, setTrend] = useState<TrendPoint[]>([]);
+  useEffect(() => {
+    getTrendSeries(ad.adName, ad.adSetName)
+      .then(setTrend)
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (started.current) return;
@@ -314,6 +368,14 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
             </span>
           ) : null}
         </div>
+        <p className={'mt-2 text-xs'}>
+          Optimizing for <strong>{ad.resultType}</strong> · this ad set paces ~{ad.adSetWeeklyPurchases.toFixed(1)}/week —{' '}
+          {ad.icSwitchQualifies ? (
+            <span className={'font-medium text-green-600'}>clears 50/wk → Purchase switch OK</span>
+          ) : (
+            <span className={'text-muted-foreground'}>hold on Initiate Checkout (needs ~50/wk to switch)</span>
+          )}
+        </p>
       </div>
 
       <div className={'space-y-3 border-b p-4'}>
@@ -322,6 +384,14 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
         <Bar label={'Cost / purchase'} value={ad.cpp !== null ? money(ad.cpp) : '—'} fill={ad.cpp !== null ? Math.min(ad.cpp / 16, 1) : 0} good={ad.cpp !== null && ad.cpp <= 8} caption={'target under $8'} />
         <Bar label={'Frequency'} value={ad.frequency.toFixed(2)} fill={Math.min(ad.frequency / 5, 1)} good={ad.frequency < 3} caption={'keep under 3.0'} />
       </div>
+
+      {trend.length >= 2 ? (
+        <div className={'space-y-2 border-b p-4'}>
+          <p className={'text-sm font-semibold'}>ROAS over time</p>
+          <TrendChart data={trend} />
+          <p className={'text-muted-foreground text-[11px]'}>Across {trend.length} saved periods for this ad.</p>
+        </div>
+      ) : null}
 
       <div className={'border-b p-4'}>
         <div className={'mb-3 flex items-center justify-between'}>
@@ -415,6 +485,23 @@ function Bar({ label, value, fill, good, caption }: { label: string; value: stri
       </div>
       <p className={'text-muted-foreground mt-0.5 text-[11px]'}>{caption}</p>
     </div>
+  );
+}
+
+function TrendChart({ data }: { data: TrendPoint[] }) {
+  const chartData = data.map((d) => ({
+    name: d.period ? d.period.slice(5) : '',
+    ROAS: d.roas ?? 0,
+  }));
+  return (
+    <ResponsiveContainer width={'100%'} height={140}>
+      <LineChart data={chartData} margin={{ top: 5, right: 8, left: -22, bottom: 0 }}>
+        <XAxis dataKey={'name'} fontSize={10} tickLine={false} axisLine={false} />
+        <YAxis fontSize={10} tickLine={false} axisLine={false} width={30} />
+        <Tooltip formatter={(v: number) => [`${Number(v).toFixed(1)}x`, 'ROAS']} />
+        <Line type={'monotone'} dataKey={'ROAS'} stroke={'#16a34a'} strokeWidth={2} dot />
+      </LineChart>
+    </ResponsiveContainer>
   );
 }
 

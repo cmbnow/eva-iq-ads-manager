@@ -25,6 +25,13 @@ import {
 const dollars = (n: number) =>
   `$${Math.round(n).toLocaleString('en-US')}`;
 
+function daysFromToday(dateStr: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return '';
+  return String(Math.max(0, Math.ceil((d.getTime() - Date.now()) / 86400000)));
+}
+
 type FormState = {
   show_name: string;
   show_date: string;
@@ -136,6 +143,9 @@ export function OfferEngineClient() {
           ...p,
           show_name: x.show_name ?? p.show_name,
           show_date: x.show_date ?? p.show_date,
+          days_remaining: x.show_date
+            ? daysFromToday(x.show_date) || p.days_remaining
+            : p.days_remaining,
           venue_capacity: x.venue_capacity?.toString() ?? p.venue_capacity,
           avg_ticket_price: x.avg_ticket_price?.toString() ?? p.avg_ticket_price,
           offer_structure: (x.offer_structure as OfferStructure) ?? p.offer_structure,
@@ -194,7 +204,18 @@ export function OfferEngineClient() {
         </CardHeader>
         <CardContent className={'grid grid-cols-2 gap-3 md:grid-cols-3'}>
           <Field label={'Show name'} v={f.show_name} on={(x) => set('show_name', x)} />
-          <Field label={'Show date'} type={'date'} v={f.show_date} on={(x) => set('show_date', x)} />
+          <Field
+            label={'Show date'}
+            type={'date'}
+            v={f.show_date}
+            on={(x) =>
+              setF((p) => ({
+                ...p,
+                show_date: x,
+                days_remaining: daysFromToday(x) || p.days_remaining,
+              }))
+            }
+          />
           <Field label={'Days remaining'} v={f.days_remaining} on={(x) => set('days_remaining', x)} />
           <Field label={'Venue capacity'} v={f.venue_capacity} on={(x) => set('venue_capacity', x)} />
           <Field label={'Avg ticket price ($)'} v={f.avg_ticket_price} on={(x) => set('avg_ticket_price', x)} />

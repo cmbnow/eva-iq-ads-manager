@@ -10,7 +10,14 @@ export const BENCHMARKS = {
   roasStrong: 10, // ROAS at/above this = strong
   roasWeak: 4, // ROAS below this = underperforming
   scaleSpendCeiling: 50, // "underfunded" if spend below this w/ strong ROAS
-  minPurchasesForConfidence: 15, // below this, ROAS is statistical noise — don't call it a winner
+  // INTERIM noise filter: trust "scale/winner" advice only at/above this RATE
+  // (sales/ad-set/week). A rate is comparable across export windows; a fixed
+  // total is not. Kept distinct from PURCHASE_SWITCH_WEEKLY_THRESHOLD (different
+  // decision) even though the value matches today.
+  // TODO(profit-logic): replace with marginal cost-per-sale vs. per-ticket
+  // margin once the margin input exists — "does the next ad dollar return > $1
+  // of ticket margin?" is the real test, not a sales count.
+  scaleConfidenceWeeklyThreshold: 50,
 };
 
 export type Flag = {
@@ -241,27 +248,16 @@ export function analyzeMetaCsv(text: string): AnalysisResult {
         ? `${action} the CAMPAIGN budget (CBO — don't touch the ad set)`
         : `${action} this ad set's budget`;
 
-    // ROAS under ~15 purchases is statistical noise — never call it a winner.
-    const hasConfidence = purchases >= BENCHMARKS.minPurchasesForConfidence;
-
+    // Base recommendation (non-scale cases only). The SCALE/WINNER decision keys
+    // on the weekly sales RATE (adSetWeeklyPurchases), which is not known until
+    // the post-aggregation pass below — so it is applied there, not here.
     let recommendation = 'Holding steady — monitor.';
-    const underfunded =
-      hasConfidence &&
-      roas >= BENCHMARKS.roasStrong &&
-      spend < BENCHMARKS.scaleSpendCeiling &&
-      frequency < BENCHMARKS.frequencyCeiling;
-    if (roas >= BENCHMARKS.roasStrong && !hasConfidence) {
-      recommendation = `High ROAS (${roas.toFixed(1)}x) but only ${purchases} purchase(s) — too few to trust (ROAS is noise under ${BENCHMARKS.minPurchasesForConfidence}). Promising signal, not a proven winner. Keep funded; don't scale yet.`;
-    } else if (underfunded) {
-      recommendation = `Underfunded winner (ROAS ${roas.toFixed(1)}x on $${spend.toFixed(0)} spend, ${purchases} purchases, frequency healthy) — ${budgetVerb('raise')} in small steps (≤~30% so you don't reset learning).`;
-    } else if (frequency >= BENCHMARKS.frequencyCeiling && roas < BENCHMARKS.roasStrong) {
+    if (frequency >= BENCHMARKS.frequencyCeiling && roas < BENCHMARKS.roasStrong) {
       recommendation = `Frequency ${frequency.toFixed(2)} with softening ROAS — refresh creative or cap frequency before fatigue spreads.`;
     } else if (frequency >= BENCHMARKS.frequencyCeiling) {
       recommendation = `Strong ROAS but frequency ${frequency.toFixed(2)} — queue a creative refresh to protect it.`;
     } else if (cpp !== null && cpp > BENCHMARKS.cppTarget) {
       recommendation = `Cost/purchase above target — tighten creative/audience or ${budgetVerb('trim')}.`;
-    } else if (roas >= BENCHMARKS.roasStrong) {
-      recommendation = `Top performer — keep funded; consider a fresh 1% lookalike off this seed (expect a brief learning reset).`;
     }
 
     // Time-to-end overrides everything: no point building new creative for an
@@ -339,6 +335,30 @@ export function analyzeMetaCsv(text: string): AnalysisResult {
       weeksInPeriod > 0 ? setTotal / weeksInPeriod : setTotal;
     a.icSwitchQualifies =
       a.adSetWeeklyPurchases >= PURCHASE_SWITCH_WEEKLY_THRESHOLD;
+
+    // Scale-confidence gate (INTERIM): only trust "scale/winner" advice when this
+    // ad set delivers >=50 sales/week. Below that, ROAS is noise — keep funded,
+    // don't scale. The time-to-end override (<=3 days) still wins over this.
+    const meetsScaleConfidence =
+      a.adSetWeeklyPurchases >= BENCHMARKS.scaleConfidenceWeeklyThreshold;
+    const imminentEnd = a.daysUntilEnd !== null && a.daysUntilEnd <= 3;
+    if (
+      !imminentEnd &&
+      a.roas >= BENCHMARKS.roasStrong &&
+      a.frequency < BENCHMARKS.frequencyCeiling
+    ) {
+      const verb =
+        a.budgetStructure === 'CBO'
+          ? 'raise the CAMPAIGN budget (CBO — do not set an ad-set budget)'
+          : "raise this ad set's budget";
+      if (meetsScaleConfidence && a.spend < BENCHMARKS.scaleSpendCeiling) {
+        a.recommendation = `Proven at volume (${a.adSetWeeklyPurchases.toFixed(0)} sales/wk, ROAS ${a.roas.toFixed(1)}x on $${a.spend.toFixed(0)}) — ${verb} in small steps (≤~30% so you don't reset learning).`;
+      } else if (meetsScaleConfidence) {
+        a.recommendation = `Proven at volume (${a.adSetWeeklyPurchases.toFixed(0)} sales/wk, ROAS ${a.roas.toFixed(1)}x) — keep funded; consider a fresh 1% lookalike off this seed (expect a brief learning reset).`;
+      } else {
+        a.recommendation = `High ROAS (${a.roas.toFixed(1)}x) but only ~${a.adSetWeeklyPurchases.toFixed(0)} sales/wk (under ${BENCHMARKS.scaleConfidenceWeeklyThreshold}/wk) — too few to trust. Promising, not proven. Keep funded, stay on Initiate Checkout, do not scale yet.`;
+      }
+    }
 
     // Long-runway underpacing: budget spread so thin over a long flight that the
     // ad set can't gather enough events to exit Meta's learning phase.

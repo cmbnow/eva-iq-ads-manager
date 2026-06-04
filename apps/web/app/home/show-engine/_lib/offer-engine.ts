@@ -117,7 +117,10 @@ function artistCost(attendance: number, i: ShowInputs): number {
 export function tierTMVs(
   i: ShowInputs,
 ): { tier: BonusTier; tier_TMV: number }[] {
-  const tiers = i.bonus_tiers ?? [];
+  // Ignore degenerate zero-width tiers (e.g. a parsed "1000–1000" row).
+  const tiers = (i.bonus_tiers ?? []).filter(
+    (t) => t.to_attendance > t.from_attendance,
+  );
   return tiers.map((t) => {
     const size = Math.max(1, t.to_attendance - t.from_attendance);
     const revenue = size * i.avg_ticket_price;

@@ -101,6 +101,11 @@ INITIATE-CHECKOUT vs PURCHASE RULE (critical, non-negotiable):
   }
 - NEVER give generic "you have enough purchases, switch to Purchase" advice.
 
+CONFIDENCE & LEARNING RULE (critical):
+- This ad has ${ad.purchases} purchase(s). If that is under 15, ROAS is statistical NOISE — do NOT call it a winner or recommend scaling. Treat it as a promising signal worth keeping funded, not a proven winner.
+- If this ad set paces well under 50 purchases/week AND the runway is long (more than ~3 weeks), it is likely stuck in Meta's learning phase because budget is spread too thin — recommend CONCENTRATING budget toward the event window, not running flat.
+- Any budget increase over ~20%, or duplicating into a new lookalike, re-triggers Meta's learning phase — call that out when you suggest either.
+
 TIMELINE RULE: Tailor advice to the days remaining. If the event ends within ~4 days, do NOT recommend producing new creative or multi-day check-ins — there's no time. Instead adjust budget on what's converting, ride the final push, and capture these buyers as a first-party seed for the NEXT event's lookalike. Only suggest new creative / A-B tests when there's a week+ of runway.
 
 SELECTED AD

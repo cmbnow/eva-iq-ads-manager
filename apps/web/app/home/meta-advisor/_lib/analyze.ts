@@ -10,6 +10,7 @@ export const BENCHMARKS = {
   roasStrong: 10, // ROAS at/above this = strong
   roasWeak: 4, // ROAS below this = underperforming
   scaleSpendCeiling: 50, // "underfunded" if spend below this w/ strong ROAS
+  minPurchasesForConfidence: 15, // below this, ROAS is statistical noise — don't call it a winner
 };
 
 export type Flag = {
@@ -234,22 +235,33 @@ export function analyzeMetaCsv(text: string): AnalysisResult {
       flags.push({ level: 'bad', text: `Quality ranking: ${quality}` });
     }
 
-    // Recommendation
+    // Budget advice must respect CBO (campaign-level) vs ABO (ad-set-level).
+    const budgetVerb = (action: 'raise' | 'trim') =>
+      budgetStructure === 'CBO'
+        ? `${action} the CAMPAIGN budget (CBO — don't touch the ad set)`
+        : `${action} this ad set's budget`;
+
+    // ROAS under ~15 purchases is statistical noise — never call it a winner.
+    const hasConfidence = purchases >= BENCHMARKS.minPurchasesForConfidence;
+
     let recommendation = 'Holding steady — monitor.';
     const underfunded =
+      hasConfidence &&
       roas >= BENCHMARKS.roasStrong &&
       spend < BENCHMARKS.scaleSpendCeiling &&
       frequency < BENCHMARKS.frequencyCeiling;
-    if (underfunded) {
-      recommendation = `Underfunded winner (ROAS ${roas.toFixed(1)}x on only $${spend.toFixed(0)} spend, frequency healthy) — scale budget.`;
+    if (roas >= BENCHMARKS.roasStrong && !hasConfidence) {
+      recommendation = `High ROAS (${roas.toFixed(1)}x) but only ${purchases} purchase(s) — too few to trust (ROAS is noise under ${BENCHMARKS.minPurchasesForConfidence}). Promising signal, not a proven winner. Keep funded; don't scale yet.`;
+    } else if (underfunded) {
+      recommendation = `Underfunded winner (ROAS ${roas.toFixed(1)}x on $${spend.toFixed(0)} spend, ${purchases} purchases, frequency healthy) — ${budgetVerb('raise')} in small steps (≤~30% so you don't reset learning).`;
     } else if (frequency >= BENCHMARKS.frequencyCeiling && roas < BENCHMARKS.roasStrong) {
       recommendation = `Frequency ${frequency.toFixed(2)} with softening ROAS — refresh creative or cap frequency before fatigue spreads.`;
     } else if (frequency >= BENCHMARKS.frequencyCeiling) {
       recommendation = `Strong ROAS but frequency ${frequency.toFixed(2)} — queue a creative refresh to protect it.`;
     } else if (cpp !== null && cpp > BENCHMARKS.cppTarget) {
-      recommendation = `Cost/purchase above target — tighten creative/audience or trim budget.`;
+      recommendation = `Cost/purchase above target — tighten creative/audience or ${budgetVerb('trim')}.`;
     } else if (roas >= BENCHMARKS.roasStrong) {
-      recommendation = `Top performer — keep funded; consider duplicating into a fresh lookalike.`;
+      recommendation = `Top performer — keep funded; consider a fresh 1% lookalike off this seed (expect a brief learning reset).`;
     }
 
     // Time-to-end overrides everything: no point building new creative for an
@@ -327,6 +339,18 @@ export function analyzeMetaCsv(text: string): AnalysisResult {
       weeksInPeriod > 0 ? setTotal / weeksInPeriod : setTotal;
     a.icSwitchQualifies =
       a.adSetWeeklyPurchases >= PURCHASE_SWITCH_WEEKLY_THRESHOLD;
+
+    // Long-runway underpacing: budget spread so thin over a long flight that the
+    // ad set can't gather enough events to exit Meta's learning phase.
+    const learningLimited =
+      a.adSetWeeklyPurchases < PURCHASE_SWITCH_WEEKLY_THRESHOLD;
+    if (learningLimited && a.daysUntilEnd !== null && a.daysUntilEnd > 21) {
+      a.flags.unshift({
+        level: 'warn',
+        text: `~${a.adSetWeeklyPurchases.toFixed(0)} conv/wk over a ${a.daysUntilEnd}-day runway — likely stuck in learning. Concentrate budget toward the event window; don't run flat.`,
+      });
+      a.recommendation += ` Likely learning-limited: ~${a.adSetWeeklyPurchases.toFixed(0)} conv/wk across ${a.daysUntilEnd} days — concentrate budget toward the event window rather than spreading it flat.`;
+    }
   }
 
   const summary: AccountSummary = {
@@ -381,6 +405,23 @@ export function analyzeMetaCsv(text: string): AnalysisResult {
           ? `(under the $${BENCHMARKS.cppTarget} target ✓).`
           : `(above the $${BENCHMARKS.cppTarget} target).`),
     );
+  }
+
+  // Audience overlap: multiple ad sets on the same first-party seed compete
+  // against each other (self-cannibalization).
+  for (const token of ['seetickets', 'hive', 'lookalike']) {
+    const sets = [
+      ...new Set(
+        ads
+          .filter((a) => a.adSetName.toLowerCase().includes(token))
+          .map((a) => a.adSetName),
+      ),
+    ];
+    if (sets.length >= 2) {
+      highlights.push(
+        `Possible audience overlap: ${sets.length} ad sets target the "${token}" seed (${sets.map((s) => `"${s}"`).join(', ')}) — they may compete against each other. Consider consolidating or adding exclusions.`,
+      );
+    }
   }
 
   return { summary, ads, highlights };

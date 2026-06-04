@@ -25,6 +25,7 @@ import {
   getTrendSeries,
   saveAndCompare,
 } from '../_lib/snapshots';
+import { ACCENT_2, MetricTile, PerfChart } from '../../_components/dashboard-ui';
 
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -186,15 +187,29 @@ export function MetaAdvisorClient() {
             </div>
           ) : null}
 
-          <div className={'text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-sm'}>
-            <span><strong className={'text-foreground'}>{result.summary.blendedRoas.toFixed(1)}x</strong> blended ROAS</span>
-            {result.summary.blendedCpp !== null ? (
-              <span><strong className={'text-foreground'}>{money(result.summary.blendedCpp)}</strong> / purchase</span>
-            ) : null}
-            <span><strong className={'text-foreground'}>{money(result.summary.totalSpend)}</strong> spend</span>
-            <span><strong className={'text-foreground'}>{result.summary.totalPurchases}</strong> purchases</span>
-            <span>{result.summary.reportStart} → {result.summary.reportEnd}</span>
-          </div>
+          {(() => {
+            const chron = [...history].reverse();
+            const roasSeries = chron.map((h) => ({ label: (h.periodEnd ?? '').slice(5), v: h.blendedRoas ?? 0 }));
+            const cppSeries = chron.map((h) => ({ label: (h.periodEnd ?? '').slice(5), v: h.blendedCpp ?? 0 }));
+            const spendSeries = chron.map((h) => ({ label: (h.periodEnd ?? '').slice(5), v: h.totalSpend ?? 0 }));
+            return (
+              <div className={'space-y-4'}>
+                <p className={'text-muted-foreground text-xs'}>{result.summary.reportStart} → {result.summary.reportEnd}</p>
+                <div className={'grid grid-cols-2 gap-3 lg:grid-cols-4'}>
+                  <MetricTile label={'Blended ROAS'} value={`${result.summary.blendedRoas.toFixed(1)}x`} series={roasSeries} />
+                  <MetricTile label={'Cost / purchase'} value={result.summary.blendedCpp !== null ? money(result.summary.blendedCpp) : '—'} series={cppSeries} accent={ACCENT_2} />
+                  <MetricTile label={'Spend'} value={money(result.summary.totalSpend)} series={spendSeries} accent={ACCENT_2} />
+                  <MetricTile label={'Purchases'} value={String(result.summary.totalPurchases)} />
+                </div>
+                {roasSeries.length > 1 ? (
+                  <div className={'bg-card rounded-xl border p-4 shadow-sm'}>
+                    <p className={'mb-2 text-sm font-semibold'}>Blended ROAS over time</p>
+                    <PerfChart series={roasSeries} height={180} />
+                  </div>
+                ) : null}
+              </div>
+            );
+          })()}
 
           {previous ? (
             <ComparisonBar current={result.summary} previous={previous} />

@@ -16,6 +16,7 @@ import { withI18n } from '~/lib/i18n/with-i18n';
 import { requireUserInServerComponent } from '~/lib/server/require-user-in-server-component';
 
 // home imports
+import { AssistantDrawer } from './_components/assistant-drawer';
 import { HomeMenuNavigation } from './_components/home-menu-navigation';
 import { HomeMobileNavigation } from './_components/home-mobile-navigation';
 import { HomeSidebar } from './_components/home-sidebar';
@@ -23,11 +24,16 @@ import { HomeSidebar } from './_components/home-sidebar';
 function HomeLayout({ children }: React.PropsWithChildren) {
   const style = use(getLayoutStyle());
 
-  if (style === 'sidebar') {
-    return <SidebarLayout>{children}</SidebarLayout>;
-  }
-
-  return <HeaderLayout>{children}</HeaderLayout>;
+  return (
+    <>
+      {style === 'sidebar' ? (
+        <SidebarLayout>{children}</SidebarLayout>
+      ) : (
+        <HeaderLayout>{children}</HeaderLayout>
+      )}
+      <AssistantDrawer />
+    </>
+  );
 }
 
 export default withI18n(HomeLayout);

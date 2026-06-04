@@ -41,11 +41,6 @@ const routes = [
         Icon: <Calculator className={iconClasses} />,
       },
       {
-        label: 'Chat',
-        path: pathsConfig.app.chat,
-        Icon: <MessageSquare className={iconClasses} />,
-      },
-      {
         label: 'Ad Composer',
         path: pathsConfig.app.campaigns,
         Icon: <Megaphone className={iconClasses} />,

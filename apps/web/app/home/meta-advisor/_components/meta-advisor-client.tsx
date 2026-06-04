@@ -26,6 +26,7 @@ import {
   saveAndCompare,
 } from '../_lib/snapshots';
 import { ACCENT_2, MetricTile, PerfChart } from '../../_components/dashboard-ui';
+import { type SavedShow, listAnalyses } from '../../show-engine/_lib/offer-actions';
 
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -286,6 +287,26 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
   const [campaignBudget, setCampaignBudget] = useState('');
   const [budgetPeriod, setBudgetPeriod] = useState<'daily' | 'lifetime'>('lifetime');
 
+  const [shows, setShows] = useState<SavedShow[]>([]);
+  const [selectedShowId, setSelectedShowId] = useState('');
+  const selectedShow = shows.find((s) => s.id === selectedShowId);
+  const showCtx = selectedShow
+    ? {
+        name: selectedShow.showName,
+        tmav: selectedShow.result.tmav,
+        cpaEarly: selectedShow.result.cpa_guardrails.early,
+        cpaMid: selectedShow.result.cpa_guardrails.mid,
+        cpaLate: selectedShow.result.cpa_guardrails.late,
+        mrmc: selectedShow.result.mrmc,
+        coreTotal: selectedShow.result.budget_tiers[1]?.total_budget ?? 0,
+        coreDaily: selectedShow.result.budget_tiers[1]?.daily_budget ?? 0,
+        aggressiveTotal: selectedShow.result.budget_tiers[0]?.total_budget ?? 0,
+        defenseTotal: selectedShow.result.budget_tiers[2]?.total_budget ?? 0,
+        daysRemaining: selectedShow.inputs.days_remaining,
+        dealScore: selectedShow.result.deal_score,
+      }
+    : undefined;
+
   const adCtx = {
     adName: ad.adName,
     adSet: ad.adSetName,
@@ -304,6 +325,7 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
     budgetStructure: ad.budgetStructure ?? 'ABO',
     campaignBudget: campaignBudget ? Number(campaignBudget) : undefined,
     budgetPeriod,
+    show: showCtx,
   };
   const accountCtx = {
     period: `${account.reportStart} → ${account.reportEnd}`,
@@ -330,8 +352,19 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
     getTrendSeries(ad.adName, ad.adSetName)
       .then(setTrend)
       .catch(() => {});
+    listAnalyses().then(setShows).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const showInit = useRef(false);
+  useEffect(() => {
+    if (!showInit.current) {
+      showInit.current = true;
+      return;
+    }
+    reloadPlan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedShowId]);
 
   function reloadPlan(overrideAmt?: string, overridePeriod?: 'daily' | 'lifetime') {
     const amt = overrideAmt ?? campaignBudget;
@@ -477,6 +510,28 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
           <button onClick={applyBudget} className={'text-primary font-medium'}>
             Apply →
           </button>
+        </div>
+        <div className={'mt-2 flex flex-wrap items-center gap-2 text-xs'}>
+          <span className={'text-muted-foreground'}>Profitability run:</span>
+          <select
+            value={selectedShowId}
+            onChange={(e) => setSelectedShowId(e.target.value)}
+            className={'border-input bg-background h-7 max-w-[16rem] rounded border px-1'}
+          >
+            <option value={''}>None (advisor asks for budget)</option>
+            {shows.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.showName} · Deal {s.dealScore}
+              </option>
+            ))}
+          </select>
+          {shows.length === 0 ? (
+            <a href={'/home/show-engine'} className={'text-primary font-medium'}>
+              Run one →
+            </a>
+          ) : selectedShow ? (
+            <span className={'font-medium text-cyan-600'}>Budget calculated from this run ✓</span>
+          ) : null}
         </div>
       </div>
 

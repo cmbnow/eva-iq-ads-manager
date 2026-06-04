@@ -8,6 +8,7 @@ import { Button } from '@kit/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@kit/ui/card';
 
 import { StatusPill } from '../../_components/dashboard-ui';
+import { type SavedShow, listAnalyses } from '../../show-engine/_lib/offer-actions';
 import {
   type AdDraft,
   type CampaignRow,
@@ -17,6 +18,8 @@ import {
   saveDraft,
   setCampaignStatus,
 } from '../_lib/campaigns';
+
+const dollars0 = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 
 const STATUS_TONE: Record<string, 'good' | 'warn' | 'info' | 'neutral'> = {
   draft: 'neutral',
@@ -36,10 +39,19 @@ export function ComposerClient() {
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [metaEnabled, setMetaEnabled] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
+  const [shows, setShows] = useState<SavedShow[]>([]);
+  const [showId, setShowId] = useState('');
+
+  const show = shows.find((s) => s.id === showId);
+  const core = show?.result.budget_tiers[1];
+  const showSummary = show
+    ? `Show "${show.showName}" (deal score ${show.result.deal_score}): recommended budget ${dollars0(core?.total_budget ?? 0)} total over ${show.inputs.days_remaining} days (~${dollars0(core?.daily_budget ?? 0)}/day), target cost-per-purchase ${dollars0(show.result.cpa_guardrails.early)}–${dollars0(show.result.cpa_guardrails.late)}, TMAV ${dollars0(show.result.tmav)}, first-party audiences`
+    : undefined;
 
   useEffect(() => {
     listCampaigns().then(setCampaigns).catch(() => {});
     getMetaEnablement().then((m) => setMetaEnabled(m.enabled)).catch(() => {});
+    listAnalyses().then(setShows).catch(() => {});
   }, []);
 
   async function onGenerate() {
@@ -47,7 +59,7 @@ export function ComposerClient() {
     setGenerating(true);
     setGenErr(null);
     setDraft(null);
-    const res = await generateAdDraft({ brief: brief.trim() });
+    const res = await generateAdDraft({ brief: brief.trim(), showSummary });
     if (res.ok) {
       setDraft(res.draft);
       setVh(0);
@@ -90,6 +102,31 @@ export function ComposerClient() {
           </CardTitle>
         </CardHeader>
         <CardContent className={'space-y-3'}>
+          <div className={'flex flex-wrap items-center gap-2 text-sm'}>
+            <span className={'text-muted-foreground'}>Profitability run:</span>
+            <select
+              value={showId}
+              onChange={(e) => setShowId(e.target.value)}
+              className={'border-input bg-background h-8 rounded border px-2 text-sm'}
+            >
+              <option value={''}>None</option>
+              {shows.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.showName} · Deal {s.result.deal_score}
+                </option>
+              ))}
+            </select>
+            {shows.length === 0 ? (
+              <a href={'/home/show-engine'} className={'text-primary font-medium'}>
+                Run one →
+              </a>
+            ) : null}
+          </div>
+          {show ? (
+            <div className={'rounded-md border border-cyan-500/30 bg-cyan-50 px-3 py-2 text-xs text-cyan-800 dark:bg-cyan-500/10 dark:text-cyan-300'}>
+              Budget from this run: <strong>{dollars0(core?.total_budget ?? 0)}</strong> total (~{dollars0(core?.daily_budget ?? 0)}/day) over {show.inputs.days_remaining} days · target cost-per-purchase {dollars0(show.result.cpa_guardrails.early)}–{dollars0(show.result.cpa_guardrails.late)}. The ad will be written to fit this.
+            </div>
+          ) : null}
           <textarea
             value={brief}
             onChange={(e) => setBrief(e.target.value)}

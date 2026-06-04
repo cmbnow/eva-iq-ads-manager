@@ -24,6 +24,21 @@ export type AdContext = {
   budgetStructure: 'CBO' | 'ABO';
   campaignBudget?: number; // known budget amount, if the user told us
   budgetPeriod?: 'daily' | 'lifetime';
+  // Linked Show Engine profitability run — the CALCULATED budget source.
+  show?: {
+    name: string;
+    tmav: number;
+    cpaEarly: number;
+    cpaMid: number;
+    cpaLate: number;
+    mrmc: number;
+    coreTotal: number;
+    coreDaily: number;
+    aggressiveTotal: number;
+    defenseTotal: number;
+    daysRemaining: number;
+    dealScore: string;
+  };
 };
 
 export type AccountContext = {
@@ -62,7 +77,18 @@ ${
       ? ad.budgetPeriod === 'lifetime'
         ? `The ${ad.budgetStructure === 'CBO' ? 'campaign' : 'ad set'} budget is $${ad.campaignBudget} LIFETIME. There is NO daily number to raise. If it's largely spent, the campaign simply stops when the lifetime budget is exhausted. To keep this winner running, advise raising the TOTAL LIFETIME budget gradually (about +30%) to ~$${Math.round(ad.campaignBudget * 1.3)} — or accept it ends when spent. NEVER phrase budget advice as "$X/day" for a lifetime budget.`
         : `The ${ad.budgetStructure === 'CBO' ? 'campaign' : 'ad set'} budget is $${ad.campaignBudget} per DAY. Advise gradual steps from that exact number (≤~30–40%), e.g. to ~$${Math.round(ad.campaignBudget * 1.3)}/day.`
-      : `The budget amount is UNKNOWN — the CSV export does not include it, and the owner hasn't entered it. DO NOT invent a "$X/day" figure from observed spend. Instead: confirm this ad set is the winner, and explicitly ASK the owner for the campaign budget (amount + whether it's daily or lifetime) so you can give an exact, executable number.`
+      : `The budget amount is UNKNOWN — the CSV export does not include it. DO NOT invent a "$X/day" figure from observed spend. Instead: confirm this ad set is the winner, and either ASK the owner for the campaign budget (amount + daily or lifetime), OR — better — tell them to run the Show Engine for this event and link it, so EVA IQ can CALCULATE the right budget from the show's economics.`
+  }
+${
+    ad.show
+      ? `\nPROFITABILITY (CALCULATED budget — use this; do NOT ask the owner for a budget):
+A profitability run is linked: "${ad.show.name}" (deal score ${ad.show.dealScore}).
+- TMAV (true marginal value per attendee): $${ad.show.tmav.toFixed(0)}.
+- Hold cost-per-purchase under these CPA targets: early $${ad.show.cpaEarly.toFixed(0)}, mid $${ad.show.cpaMid.toFixed(0)}, late $${ad.show.cpaLate.toFixed(0)}. Never exceed the late target.
+- Max rational marketing spend for this show (MRMC): $${ad.show.mrmc.toFixed(0)}.
+- RECOMMENDED total budget for the ${ad.show.daysRemaining}-day flight: Core $${ad.show.coreTotal.toFixed(0)} (~$${ad.show.coreDaily.toFixed(0)}/day), Aggressive $${ad.show.aggressiveTotal.toFixed(0)}, Defense $${ad.show.defenseTotal.toFixed(0)}.
+- TELL the owner the EXACT budget to set: pick the tier by deal score (A/B → Core or Aggressive; C → Defense), expressed as a LIFETIME budget of about that tier total across the ${ad.show.daysRemaining}-day flight (or the per-day figure if they run daily budgets). This is the calculated, profitable budget — recommend it directly.${ad.campaignBudget != null ? ` The owner's current budget is $${ad.campaignBudget} ${ad.budgetPeriod ?? ''}; compare to the recommended tier and advise the gradual move toward it (≤~30–40%/step).` : ''}`
+      : ''
   }
 
 INITIATE-CHECKOUT vs PURCHASE RULE (critical, non-negotiable):

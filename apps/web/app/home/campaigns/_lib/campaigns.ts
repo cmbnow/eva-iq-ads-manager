@@ -50,6 +50,7 @@ export async function getMetaEnablement(): Promise<{
 
 export async function generateAdDraft(input: {
   brief: string;
+  showSummary?: string;
 }): Promise<GenerateResult> {
   const { tenant } = await getTenantContext();
   const sac = tenant?.special_ad_category ?? 'none';
@@ -73,7 +74,11 @@ Keep copy within Meta limits: primary text punchy (~125 chars ideal), headlines 
     messages: [
       {
         role: 'user',
-        content: `Create a new Meta ad based on this: ${input.brief}\n\nReturn ONLY the JSON.`,
+        content: `Create a new Meta ad based on this: ${input.brief}${
+          input.showSummary
+            ? `\n\nProfitability constraints (fit the ad's objective, audience, and expectations to this): ${input.showSummary}. In "buildSteps", include setting the campaign budget to the recommended amount and keeping cost-per-purchase under the early CPA target.`
+            : ''
+        }\n\nReturn ONLY the JSON.`,
       },
     ],
   });

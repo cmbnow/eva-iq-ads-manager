@@ -282,6 +282,10 @@ export function MetaAdvisorClient() {
 function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult['summary'] }) {
   const dailySpend = account.periodDays > 0 ? ad.spend / account.periodDays : ad.spend;
 
+  const budgetKey = `evaiq-budget-${ad.adSetName}`;
+  const [campaignBudget, setCampaignBudget] = useState('');
+  const [budgetPeriod, setBudgetPeriod] = useState<'daily' | 'lifetime'>('lifetime');
+
   const adCtx = {
     adName: ad.adName,
     adSet: ad.adSetName,
@@ -298,6 +302,8 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
     adSetWeeklyPurchases: ad.adSetWeeklyPurchases ?? 0,
     icSwitchQualifies: ad.icSwitchQualifies ?? false,
     budgetStructure: ad.budgetStructure ?? 'ABO',
+    campaignBudget: campaignBudget ? Number(campaignBudget) : undefined,
+    budgetPeriod,
   };
   const accountCtx = {
     period: `${account.reportStart} → ${account.reportEnd}`,
@@ -327,10 +333,16 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    void getPlan({ ad: adCtx, account: accountCtx }).then((res) => {
+  function reloadPlan(overrideAmt?: string, overridePeriod?: 'daily' | 'lifetime') {
+    const amt = overrideAmt ?? campaignBudget;
+    const ctx = {
+      ...adCtx,
+      campaignBudget: amt ? Number(amt) : undefined,
+      budgetPeriod: overridePeriod ?? budgetPeriod,
+    };
+    setSteps(null);
+    setPlanErr(null);
+    void getPlan({ ad: ctx, account: accountCtx }).then((res) => {
       if (res.ok) {
         setSteps(res.steps);
         setBottomLine(res.bottomLine);
@@ -348,6 +360,34 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
         setPlanErr(res.error);
       }
     });
+  }
+
+  function applyBudget() {
+    try {
+      localStorage.setItem(budgetKey, JSON.stringify({ amount: campaignBudget, period: budgetPeriod }));
+    } catch {
+      /* ignore */
+    }
+    reloadPlan();
+  }
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    let amt: string | undefined;
+    let period: 'daily' | 'lifetime' | undefined;
+    try {
+      const saved = JSON.parse(localStorage.getItem(budgetKey) ?? 'null');
+      if (saved && saved.amount) {
+        amt = String(saved.amount);
+        period = saved.period ?? 'lifetime';
+        setCampaignBudget(amt);
+        setBudgetPeriod(period ?? 'lifetime');
+      }
+    } catch {
+      /* ignore */
+    }
+    reloadPlan(amt, period);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -415,6 +455,29 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
             <span className={'text-muted-foreground'}>Ad-set budget (ABO) — set this ad set&apos;s budget directly</span>
           )}
         </p>
+        <div className={'mt-2 flex flex-wrap items-center gap-2 text-xs'}>
+          <span className={'text-muted-foreground'}>
+            Tell EVA IQ the {(ad.budgetStructure ?? 'ABO') === 'CBO' ? 'campaign' : 'ad set'} budget: $
+          </span>
+          <input
+            type={'number'}
+            value={campaignBudget}
+            onChange={(e) => setCampaignBudget(e.target.value)}
+            placeholder={'e.g. 250'}
+            className={'border-input bg-background h-7 w-20 rounded border px-2'}
+          />
+          <select
+            value={budgetPeriod}
+            onChange={(e) => setBudgetPeriod(e.target.value as 'daily' | 'lifetime')}
+            className={'border-input bg-background h-7 rounded border px-1'}
+          >
+            <option value={'lifetime'}>lifetime</option>
+            <option value={'daily'}>daily</option>
+          </select>
+          <button onClick={applyBudget} className={'text-primary font-medium'}>
+            Apply →
+          </button>
+        </div>
       </div>
 
       <div className={'space-y-3 border-b p-4'}>

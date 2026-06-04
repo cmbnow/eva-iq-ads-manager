@@ -22,6 +22,8 @@ export type AdContext = {
   adSetWeeklyPurchases: number;
   icSwitchQualifies: boolean;
   budgetStructure: 'CBO' | 'ABO';
+  campaignBudget?: number; // known budget amount, if the user told us
+  budgetPeriod?: 'daily' | 'lifetime';
 };
 
 export type AccountContext = {
@@ -42,7 +44,7 @@ function buildSystem(ad: AdContext, account: AccountContext): string {
 You advise the venue's owner, who is NOT technical. Be warm, plain-spoken, CONCISE, and CONCRETE.
 
 MONEY RULE (critical):
-- Whenever you suggest a budget change, give the EXACT new daily budget in DOLLARS, computed from the ad's recent daily spend. Never say a percentage.
+- Give exact dollar figures, never percentages. BUT base any budget recommendation on the KNOWN budget amount in the BUDGET AMOUNT section below — NOT on observed spend. The recent daily spend is only the burn rate, not the budget setting. If the budget amount is unknown, ASK for it instead of inventing a "$X/day" number.
 - SCALE GRADUALLY: never increase a daily budget by more than ~30–40% in a single step. Larger jumps reset Meta's learning phase and can tank a winning ad — so step it up over time. Example: if it's at ~$1/day, recommend "raise to about $1.30/day" (not $3/day), then step up again in a week. If it's at ~$8/day, recommend ~$10–11/day.
 - BE PRECISE: never exaggerate a number. If cost/purchase is $2.74 against an $8 target, that's "about 3x under target," not 4x. Double-check every multiple and dollar figure.
 
@@ -53,6 +55,15 @@ ${
       : '- ABO (ad-set budget): this ad set has its OWN budget, so ad-set-level budget advice is correct — e.g. "raise this ad set\'s daily budget to ~$X."'
   }
 - The gradual-scaling rule above applies to whichever level you adjust.
+
+BUDGET AMOUNT (critical — do not fabricate):
+${
+    ad.campaignBudget != null
+      ? ad.budgetPeriod === 'lifetime'
+        ? `The ${ad.budgetStructure === 'CBO' ? 'campaign' : 'ad set'} budget is $${ad.campaignBudget} LIFETIME. There is NO daily number to raise. If it's largely spent, the campaign simply stops when the lifetime budget is exhausted. To keep this winner running, advise raising the TOTAL LIFETIME budget gradually (about +30%) to ~$${Math.round(ad.campaignBudget * 1.3)} — or accept it ends when spent. NEVER phrase budget advice as "$X/day" for a lifetime budget.`
+        : `The ${ad.budgetStructure === 'CBO' ? 'campaign' : 'ad set'} budget is $${ad.campaignBudget} per DAY. Advise gradual steps from that exact number (≤~30–40%), e.g. to ~$${Math.round(ad.campaignBudget * 1.3)}/day.`
+      : `The budget amount is UNKNOWN — the CSV export does not include it, and the owner hasn't entered it. DO NOT invent a "$X/day" figure from observed spend. Instead: confirm this ad set is the winner, and explicitly ASK the owner for the campaign budget (amount + whether it's daily or lifetime) so you can give an exact, executable number.`
+  }
 
 INITIATE-CHECKOUT vs PURCHASE RULE (critical, non-negotiable):
 - This account optimizes ad sets on Initiate Checkout until a SINGLE AD SET reaches ~50 Purchase events in a rolling 7-day window. ONLY then switch THAT ad set to Purchase optimization.
@@ -70,7 +81,7 @@ SELECTED AD
 - Name: ${ad.adName}
 - Ad set / audience: ${ad.adSet}
 - Total spend this period: $${ad.spend.toFixed(2)}
-- Recent daily spend: ~$${ad.dailySpend.toFixed(2)}/day
+- Observed recent daily spend (burn rate, NOT the budget setting): ~$${ad.dailySpend.toFixed(2)}/day
 - Purchases (this ad): ${ad.purchases}
 - This ad set's pace: ~${(ad.adSetWeeklyPurchases ?? 0).toFixed(1)} purchases/week
 - Budget structure: ${ad.budgetStructure}${ad.budgetStructure === 'CBO' ? ' (campaign-level — cannot set this ad set\'s budget directly)' : ' (ad-set budget)'}

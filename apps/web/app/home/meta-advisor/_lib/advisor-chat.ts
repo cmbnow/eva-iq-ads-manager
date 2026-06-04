@@ -48,7 +48,7 @@ MONEY RULE (critical):
 INITIATE-CHECKOUT vs PURCHASE RULE (critical, non-negotiable):
 - This account optimizes ad sets on Initiate Checkout until a SINGLE AD SET reaches ~50 Purchase events in a rolling 7-day window. ONLY then switch THAT ad set to Purchase optimization.
 - The 50/week threshold is PER AD SET — never account-wide, never multi-week totals.
-- THIS ad set is pacing ~${ad.adSetWeeklyPurchases.toFixed(1)} purchases/week, which ${ad.icSwitchQualifies ? 'CLEARS' : 'does NOT clear'} the 50/week threshold.${
+- THIS ad set is pacing ~${(ad.adSetWeeklyPurchases ?? 0).toFixed(1)} purchases/week, which ${ad.icSwitchQualifies ? 'CLEARS' : 'does NOT clear'} the 50/week threshold.${
     ad.icSwitchQualifies
       ? ' So a switch to Purchase optimization is justified for this ad set.'
       : ' So you MUST hold on Initiate Checkout. Do NOT recommend switching to Purchase, no matter how high the raw purchase count looks.'
@@ -63,7 +63,7 @@ SELECTED AD
 - Total spend this period: $${ad.spend.toFixed(2)}
 - Recent daily spend: ~$${ad.dailySpend.toFixed(2)}/day
 - Purchases (this ad): ${ad.purchases}
-- This ad set's pace: ~${ad.adSetWeeklyPurchases.toFixed(1)} purchases/week
+- This ad set's pace: ~${(ad.adSetWeeklyPurchases ?? 0).toFixed(1)} purchases/week
 - ROAS: ${ad.roas.toFixed(2)}x
 - Cost per purchase: ${ad.costPerPurchase !== null ? '$' + ad.costPerPurchase.toFixed(2) : 'n/a'}
 - Frequency: ${ad.frequency.toFixed(2)}

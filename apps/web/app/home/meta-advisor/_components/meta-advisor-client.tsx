@@ -295,8 +295,8 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
     recommendation: ad.recommendation,
     endsDate: ad.endsDate,
     daysUntilEnd: ad.daysUntilEnd,
-    adSetWeeklyPurchases: ad.adSetWeeklyPurchases,
-    icSwitchQualifies: ad.icSwitchQualifies,
+    adSetWeeklyPurchases: ad.adSetWeeklyPurchases ?? 0,
+    icSwitchQualifies: ad.icSwitchQualifies ?? false,
   };
   const accountCtx = {
     period: `${account.reportStart} → ${account.reportEnd}`,
@@ -399,7 +399,7 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
           ) : null}
         </div>
         <p className={'mt-2 text-xs'}>
-          Optimizing for <strong>{ad.resultType}</strong> · this ad set paces ~{ad.adSetWeeklyPurchases.toFixed(1)}/week —{' '}
+          Optimizing for <strong>{ad.resultType || 'conversions'}</strong> · this ad set paces ~{(ad.adSetWeeklyPurchases ?? 0).toFixed(1)}/week —{' '}
           {ad.icSwitchQualifies ? (
             <span className={'font-medium text-green-600'}>clears 50/wk → Purchase switch OK</span>
           ) : (

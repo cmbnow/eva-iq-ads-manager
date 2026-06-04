@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import { Send, Sparkles, Upload } from 'lucide-react';
+import { History, Send, Sparkles, Upload } from 'lucide-react';
 
 import { Badge } from '@kit/ui/badge';
 import { Button } from '@kit/ui/button';
@@ -16,7 +16,12 @@ import {
   askAdvisor,
   getPlan,
 } from '../_lib/advisor-chat';
-import { type SnapshotMeta, saveAndCompare } from '../_lib/snapshots';
+import {
+  type SnapshotMeta,
+  getHistory,
+  getSnapshotAnalysis,
+  saveAndCompare,
+} from '../_lib/snapshots';
 
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -41,6 +46,14 @@ export function MetaAdvisorClient() {
   const [previous, setPrevious] = useState<SnapshotMeta | null>(null);
   const [history, setHistory] = useState<SnapshotMeta[]>([]);
   const [saving, setSaving] = useState(false);
+  const [viewingSaved, setViewingSaved] = useState(false);
+
+  // Always load history when the page opens (not just after an upload).
+  useEffect(() => {
+    getHistory()
+      .then(setHistory)
+      .catch(() => {});
+  }, []);
 
   function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -49,28 +62,14 @@ export function MetaAdvisorClient() {
     setError(null);
     setSelected(null);
     setPrevious(null);
-    setHistory([]);
+    setViewingSaved(false);
     file
       .text()
       .then((text) => {
         const analysis = analyzeMetaCsv(text);
         setResult(analysis);
         setSaving(true);
-        saveAndCompare({
-          summary: analysis.summary,
-          fileName: file.name,
-          ads: analysis.ads.map((a) => ({
-            adName: a.adName,
-            adSetName: a.adSetName,
-            spend: a.spend,
-            purchases: a.purchases,
-            roas: a.roas,
-            cpp: a.cpp,
-            frequency: a.frequency,
-            daysUntilEnd: a.daysUntilEnd,
-            recommendation: a.recommendation,
-          })),
-        })
+        saveAndCompare({ summary: analysis.summary, fileName: file.name, ads: analysis.ads })
           .then((res) => {
             if (res.ok) {
               setPrevious(res.previous);
@@ -86,6 +85,20 @@ export function MetaAdvisorClient() {
       });
   }
 
+  function openSaved(snap: SnapshotMeta) {
+    getSnapshotAnalysis(snap.id)
+      .then((a) => {
+        if (!a) return;
+        setResult(a);
+        setSelected(null);
+        setPrevious(null);
+        setViewingSaved(true);
+        setFileName(`Saved report · ${snap.periodStart} → ${snap.periodEnd}`);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      })
+      .catch(() => {});
+  }
+
   return (
     <div className={'space-y-5'}>
       <Card>
@@ -96,7 +109,7 @@ export function MetaAdvisorClient() {
             }
           >
             <Upload className={'h-4 w-4'} />
-            {fileName ? 'Change CSV' : 'Upload Meta ads CSV'}
+            {result ? 'Upload a newer CSV' : 'Upload Meta ads CSV'}
             <input type={'file'} accept={'.csv,text/csv'} className={'hidden'} onChange={onFile} />
           </label>
           <p className={'text-muted-foreground text-xs'}>
@@ -108,6 +121,12 @@ export function MetaAdvisorClient() {
 
       {result ? (
         <>
+          {viewingSaved ? (
+            <div className={'flex items-center gap-2 rounded-md border border-blue-500/30 bg-blue-50 px-3 py-2 text-sm text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'}>
+              <History className={'h-4 w-4'} /> Viewing a saved report. Upload a newer CSV to add the latest period.
+            </div>
+          ) : null}
+
           <div className={'text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-sm'}>
             <span><strong className={'text-foreground'}>{result.summary.blendedRoas.toFixed(1)}x</strong> blended ROAS</span>
             {result.summary.blendedCpp !== null ? (
@@ -125,7 +144,7 @@ export function MetaAdvisorClient() {
           ) : null}
 
           <div className={'grid gap-4 lg:grid-cols-3'}>
-            <div className={'space-y-2 lg:col-span-1'}>
+            <div className={'min-w-0 space-y-2 lg:col-span-1'}>
               <p className={'text-sm font-semibold'}>Your ads — pick one</p>
               {result.ads.map((ad, i) => {
                 const status = statusFor(ad);
@@ -141,9 +160,12 @@ export function MetaAdvisorClient() {
                   >
                     <div className={'flex items-start justify-between gap-2'}>
                       <span className={'line-clamp-2 text-sm font-medium'}>{ad.adName}</span>
-                      <Badge variant={status.variant}>{status.label}</Badge>
+                      <Badge variant={status.variant} className={'shrink-0'}>{status.label}</Badge>
                     </div>
-                    <div className={'text-muted-foreground mt-1 flex flex-wrap gap-3 text-xs'}>
+                    {ad.adSetName ? (
+                      <p className={'text-muted-foreground line-clamp-1 text-xs'}>{ad.adSetName}</p>
+                    ) : null}
+                    <div className={'text-muted-foreground mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs'}>
                       <span>{ad.roas.toFixed(1)}x ROAS</span>
                       <span>{money(ad.spend)}</span>
                       <span>freq {ad.frequency.toFixed(1)}</span>
@@ -158,7 +180,7 @@ export function MetaAdvisorClient() {
               })}
             </div>
 
-            <div className={'lg:col-span-2'}>
+            <div className={'min-w-0 lg:col-span-2'}>
               {selected !== null ? (
                 <AdvisorPanel key={selected} ad={result.ads[selected]!} account={result.summary} />
               ) : (
@@ -170,10 +192,15 @@ export function MetaAdvisorClient() {
               )}
             </div>
           </div>
-
-          {history.length > 0 ? <HistoryList history={history} /> : null}
         </>
+      ) : history.length === 0 ? (
+        <p className={'text-muted-foreground text-sm'}>
+          Upload a Meta ads export to get started. Each upload is saved so you can track progress over time.
+        </p>
       ) : null}
+
+      {/* History — always visible once you have any */}
+      {history.length > 0 ? <HistoryList history={history} onOpen={openSaved} /> : null}
     </div>
   );
 }
@@ -202,14 +229,12 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
     totalSpend: account.totalSpend,
   };
 
-  // Plan / checklist
   const [steps, setSteps] = useState<PlanStep[] | null>(null);
   const [bottomLine, setBottomLine] = useState('');
   const [planErr, setPlanErr] = useState<string | null>(null);
   const [done, setDone] = useState<boolean[]>([]);
   const storageKey = `evaiq-plan-${account.reportStart}-${account.reportEnd}-${ad.adName}-${ad.adSetName}`;
 
-  // Chat
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [input, setInput] = useState('');
@@ -224,7 +249,6 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
       if (res.ok) {
         setSteps(res.steps);
         setBottomLine(res.bottomLine);
-        // restore checked state
         try {
           const saved = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
           setDone(
@@ -277,8 +301,7 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
   const doneCount = done.filter(Boolean).length;
 
   return (
-    <Card className={'flex flex-col'}>
-      {/* Header */}
+    <Card className={'flex min-w-0 flex-col overflow-hidden'}>
       <div className={'border-b p-4'}>
         <p className={'font-semibold'}>{ad.adName}</p>
         <p className={'text-muted-foreground text-xs'}>{ad.adSetName}</p>
@@ -293,7 +316,6 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
         </div>
       </div>
 
-      {/* Performance bars */}
       <div className={'space-y-3 border-b p-4'}>
         <p className={'text-sm font-semibold'}>Performance at a glance</p>
         <Bar label={'ROAS'} value={`${ad.roas.toFixed(1)}x`} fill={Math.min(ad.roas / 20, 1)} good={ad.roas >= 10} caption={'target 10x+'} />
@@ -301,15 +323,12 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
         <Bar label={'Frequency'} value={ad.frequency.toFixed(2)} fill={Math.min(ad.frequency / 5, 1)} good={ad.frequency < 3} caption={'keep under 3.0'} />
       </div>
 
-      {/* Action plan checklist */}
       <div className={'border-b p-4'}>
         <div className={'mb-3 flex items-center justify-between'}>
           <p className={'flex items-center gap-2 text-sm font-semibold'}>
             <Sparkles className={'h-4 w-4'} /> Action plan
           </p>
-          {steps ? (
-            <span className={'text-muted-foreground text-xs'}>{doneCount} of {steps.length} done</span>
-          ) : null}
+          {steps ? <span className={'text-muted-foreground text-xs'}>{doneCount} of {steps.length} done</span> : null}
         </div>
 
         {planErr ? <p className={'text-destructive text-sm'}>{planErr}</p> : null}
@@ -329,28 +348,18 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
                   done[i] ? 'bg-muted/60 border-green-500/40' : 'hover:bg-accent/40',
                 )}
               >
-                <input
-                  type={'checkbox'}
-                  checked={done[i] ?? false}
-                  onChange={() => toggle(i)}
-                  className={'mt-0.5 h-4 w-4 shrink-0'}
-                />
-                <span>
-                  <span className={cn('font-medium', done[i] ? 'text-muted-foreground line-through' : '')}>
-                    {s.title}
-                  </span>
+                <input type={'checkbox'} checked={done[i] ?? false} onChange={() => toggle(i)} className={'mt-0.5 h-4 w-4 shrink-0'} />
+                <span className={'min-w-0'}>
+                  <span className={cn('font-medium', done[i] ? 'text-muted-foreground line-through' : '')}>{s.title}</span>
                   <span className={'text-muted-foreground block text-xs'}>{s.detail}</span>
                 </span>
               </label>
             ))}
-            {bottomLine ? (
-              <p className={'text-muted-foreground pt-1 text-sm italic'}>{bottomLine}</p>
-            ) : null}
+            {bottomLine ? <p className={'text-muted-foreground pt-1 text-sm italic'}>{bottomLine}</p> : null}
           </div>
         ) : null}
       </div>
 
-      {/* Chat */}
       <div className={'flex flex-col'}>
         <div ref={scrollRef} className={'max-h-72 space-y-3 overflow-y-auto p-4'}>
           {messages.length === 0 ? (
@@ -394,51 +403,28 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
   );
 }
 
-function Bar({
-  label,
-  value,
-  fill,
-  good,
-  caption,
-}: {
-  label: string;
-  value: string;
-  fill: number;
-  good: boolean;
-  caption: string;
-}) {
+function Bar({ label, value, fill, good, caption }: { label: string; value: string; fill: number; good: boolean; caption: string }) {
   return (
-    <div>
-      <div className={'mb-1 flex items-center justify-between text-xs'}>
+    <div className={'min-w-0'}>
+      <div className={'mb-1 flex items-center justify-between gap-2 text-xs'}>
         <span className={'font-medium'}>{label}</span>
-        <span className={good ? 'text-green-600' : 'text-orange-500'}>{value}</span>
+        <span className={cn('shrink-0 tabular-nums', good ? 'text-green-600' : 'text-orange-500')}>{value}</span>
       </div>
       <div className={'bg-muted h-2 w-full overflow-hidden rounded-full'}>
-        <div
-          className={cn('h-full rounded-full', good ? 'bg-green-500' : 'bg-orange-500')}
-          style={{ width: `${Math.max(4, Math.min(100, fill * 100))}%` }}
-        />
+        <div className={cn('h-full rounded-full', good ? 'bg-green-500' : 'bg-orange-500')} style={{ width: `${Math.max(4, Math.min(100, fill * 100))}%` }} />
       </div>
       <p className={'text-muted-foreground mt-0.5 text-[11px]'}>{caption}</p>
     </div>
   );
 }
 
-function ComparisonBar({
-  current,
-  previous,
-}: {
-  current: AnalysisResult['summary'];
-  previous: SnapshotMeta;
-}) {
+function ComparisonBar({ current, previous }: { current: AnalysisResult['summary']; previous: SnapshotMeta }) {
   return (
     <Card>
       <CardContent className={'py-4'}>
         <p className={'mb-3 text-sm font-semibold'}>
           Since your last upload{' '}
-          <span className={'text-muted-foreground font-normal'}>
-            ({previous.periodStart} → {previous.periodEnd})
-          </span>
+          <span className={'text-muted-foreground font-normal'}>({previous.periodStart} → {previous.periodEnd})</span>
         </p>
         <div className={'grid grid-cols-2 gap-4 sm:grid-cols-4'}>
           <Delta label={'Blended ROAS'} cur={current.blendedRoas} prev={previous.blendedRoas} fmt={(n) => `${n.toFixed(1)}x`} higherIsBetter />
@@ -451,21 +437,7 @@ function ComparisonBar({
   );
 }
 
-function Delta({
-  label,
-  cur,
-  prev,
-  fmt,
-  higherIsBetter,
-  neutral,
-}: {
-  label: string;
-  cur: number | null;
-  prev: number | null;
-  fmt: (n: number) => string;
-  higherIsBetter?: boolean;
-  neutral?: boolean;
-}) {
+function Delta({ label, cur, prev, fmt, higherIsBetter, neutral }: { label: string; cur: number | null; prev: number | null; fmt: (n: number) => string; higherIsBetter?: boolean; neutral?: boolean }) {
   const hasBoth = cur !== null && prev !== null;
   const diff = hasBoth ? cur - prev : 0;
   const up = diff > 0.0001;
@@ -479,9 +451,7 @@ function Delta({
       <p className={'text-muted-foreground text-xs'}>{label}</p>
       <p className={'text-xl font-bold'}>{cur !== null ? fmt(cur) : '—'}</p>
       {hasBoth && (up || down) ? (
-        <p className={cn('text-xs font-medium', color)}>
-          {up ? '▲' : '▼'} {fmt(Math.abs(diff))} vs {fmt(prev)}
-        </p>
+        <p className={cn('text-xs font-medium', color)}>{up ? '▲' : '▼'} {fmt(Math.abs(diff))} vs {fmt(prev)}</p>
       ) : (
         <p className={'text-muted-foreground text-xs'}>{hasBoth ? 'no change' : 'first upload'}</p>
       )}
@@ -489,22 +459,29 @@ function Delta({
   );
 }
 
-function HistoryList({ history }: { history: SnapshotMeta[] }) {
+function HistoryList({ history, onOpen }: { history: SnapshotMeta[]; onOpen: (s: SnapshotMeta) => void }) {
   return (
     <Card>
       <CardContent className={'py-4'}>
-        <p className={'mb-3 text-sm font-semibold'}>Upload history</p>
-        <div className={'divide-y text-sm'}>
+        <p className={'mb-1 flex items-center gap-2 text-sm font-semibold'}>
+          <History className={'h-4 w-4'} /> Upload history
+        </p>
+        <p className={'text-muted-foreground mb-3 text-xs'}>Click any period to re-open its full report.</p>
+        <div className={'divide-y'}>
           {history.map((h) => (
-            <div key={h.id} className={'flex flex-wrap items-center justify-between gap-2 py-2'}>
-              <span>{h.periodStart} → {h.periodEnd}</span>
-              <span className={'text-muted-foreground flex gap-3 text-xs'}>
+            <button
+              key={h.id}
+              onClick={() => onOpen(h)}
+              className={'hover:bg-accent/50 flex w-full flex-wrap items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors'}
+            >
+              <span className={'font-medium'}>{h.periodStart} → {h.periodEnd}</span>
+              <span className={'text-muted-foreground flex flex-wrap gap-x-3 text-xs'}>
                 <span>{h.blendedRoas !== null ? `${h.blendedRoas.toFixed(1)}x ROAS` : ''}</span>
                 <span>{h.blendedCpp !== null ? `${money(h.blendedCpp)}/purch` : ''}</span>
                 <span>{h.totalPurchases ?? ''} purchases</span>
                 <span>{new Date(h.uploadedAt).toLocaleDateString()}</span>
               </span>
-            </div>
+            </button>
           ))}
         </div>
       </CardContent>

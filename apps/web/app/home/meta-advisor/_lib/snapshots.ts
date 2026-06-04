@@ -2,19 +2,7 @@
 
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
 
-import type { AccountSummary } from './analyze';
-
-export type SlimAd = {
-  adName: string;
-  adSetName: string;
-  spend: number;
-  purchases: number;
-  roas: number;
-  cpp: number | null;
-  frequency: number;
-  daysUntilEnd: number | null;
-  recommendation: string;
-};
+import type { AccountSummary, AdAnalysis, AnalysisResult } from './analyze';
 
 export type SnapshotMeta = {
   id: string;
@@ -45,32 +33,76 @@ function toMeta(row: Record<string, unknown>): SnapshotMeta {
   };
 }
 
-export async function saveAndCompare(input: {
-  summary: AccountSummary;
-  ads: SlimAd[];
-  fileName: string | null;
-}): Promise<SaveResult> {
-  // Untyped client for the snapshots table (kept out of generated types).
-  const supabase = getSupabaseServerClient();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any;
-
-  // Which client (tenant) is this for? RLS returns only the user's tenants.
-  const { data: tenants, error: tErr } = await supabase
+async function firstTenantId(
+  supabase: ReturnType<typeof getSupabaseServerClient>,
+): Promise<string | null> {
+  const { data } = await supabase
     .from('tenants')
     .select('id')
     .order('created_at', { ascending: true })
     .limit(1);
+  return data?.[0]?.id ?? null;
+}
 
-  if (tErr || !tenants || tenants.length === 0) {
+/** Load the saved history for this client (used on page load — always visible). */
+export async function getHistory(): Promise<SnapshotMeta[]> {
+  const supabase = getSupabaseServerClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any;
+  const tenantId = await firstTenantId(supabase);
+  if (!tenantId) return [];
+
+  const { data } = await db
+    .from('ad_report_snapshots')
+    .select(
+      'id, period_start, period_end, uploaded_at, blended_roas, blended_cpp, total_spend, total_purchases',
+    )
+    .eq('tenant_id', tenantId)
+    .order('uploaded_at', { ascending: false })
+    .limit(24);
+
+  return (data ?? []).map(toMeta);
+}
+
+/** Re-open a saved period: returns the stored analysis to render. */
+export async function getSnapshotAnalysis(
+  id: string,
+): Promise<AnalysisResult | null> {
+  const supabase = getSupabaseServerClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any;
+
+  const { data } = await db
+    .from('ad_report_snapshots')
+    .select('summary, ads')
+    .eq('id', id)
+    .limit(1);
+
+  const row = data?.[0];
+  if (!row) return null;
+
+  const summary = row.summary as AccountSummary;
+  const ads = (row.ads as AdAnalysis[]) ?? [];
+  return { summary, ads, highlights: [] };
+}
+
+export async function saveAndCompare(input: {
+  summary: AccountSummary;
+  ads: AdAnalysis[];
+  fileName: string | null;
+}): Promise<SaveResult> {
+  const supabase = getSupabaseServerClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any;
+
+  const tenantId = await firstTenantId(supabase);
+  if (!tenantId) {
     return { ok: false, error: 'No client found to attach this report to.' };
   }
-  const tenantId = tenants[0]!.id;
 
   const s = input.summary;
   const round2 = (n: number) => Math.round(n * 100) / 100;
 
-  // Pull recent snapshots BEFORE inserting (to find the comparison target).
   const { data: recentRaw } = await db
     .from('ad_report_snapshots')
     .select('*')
@@ -87,8 +119,6 @@ export async function saveAndCompare(input: {
     round2(Number(row.total_spend)) === round2(s.totalSpend);
 
   const isDuplicate = recent.length > 0 && sameAsCurrent(recent[0]!);
-
-  // The "since last upload" target = most recent snapshot that's a DIFFERENT report.
   const previousRow = recent.find((r) => !sameAsCurrent(r)) ?? null;
 
   if (!isDuplicate) {
@@ -108,7 +138,6 @@ export async function saveAndCompare(input: {
     });
   }
 
-  // History (after insert), newest first.
   const { data: historyRaw } = await db
     .from('ad_report_snapshots')
     .select(
@@ -116,7 +145,7 @@ export async function saveAndCompare(input: {
     )
     .eq('tenant_id', tenantId)
     .order('uploaded_at', { ascending: false })
-    .limit(12);
+    .limit(24);
 
   return {
     ok: true,

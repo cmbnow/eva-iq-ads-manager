@@ -33,6 +33,11 @@ const config = {
   experimental: {
     mdxRs: true,
     reactCompiler: ENABLE_REACT_COMPILER,
+    // Allow PDF offer sheets / screenshots to be sent to server actions
+    // (default is 1mb; base64 inflates files ~33%). Stays under Vercel's cap.
+    serverActions: {
+      bodySizeLimit: '4mb',
+    },
     turbo: {
       resolveExtensions: ['.ts', '.tsx', '.js', '.jsx'],
     },

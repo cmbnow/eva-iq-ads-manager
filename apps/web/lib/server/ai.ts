@@ -7,6 +7,10 @@ export type ClaudeContentBlock =
   | {
       type: 'image';
       source: { type: 'base64'; media_type: string; data: string };
+    }
+  | {
+      type: 'document';
+      source: { type: 'base64'; media_type: 'application/pdf'; data: string };
     };
 
 export type ClaudeMessage = {

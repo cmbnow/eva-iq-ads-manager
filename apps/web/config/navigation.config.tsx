@@ -1,5 +1,6 @@
 import {
   Building2,
+  Calculator,
   Home,
   LineChart,
   Megaphone,
@@ -33,6 +34,11 @@ const routes = [
         label: 'Meta Advisor',
         path: pathsConfig.app.metaAdvisor,
         Icon: <LineChart className={iconClasses} />,
+      },
+      {
+        label: 'Show Engine',
+        path: pathsConfig.app.showEngine,
+        Icon: <Calculator className={iconClasses} />,
       },
       {
         label: 'Chat',

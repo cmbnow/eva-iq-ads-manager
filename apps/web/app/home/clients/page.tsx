@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
 import { Badge } from '@kit/ui/badge';
 import {
@@ -14,6 +16,7 @@ import {
 } from '@kit/ui/empty-state';
 import { PageBody, PageHeader } from '@kit/ui/page';
 
+import pathsConfig from '~/config/paths.config';
 import { requireUserInServerComponent } from '~/lib/server/require-user-in-server-component';
 
 const SAC_LABELS: Record<string, string> = {
@@ -74,7 +77,8 @@ export default async function ClientsPage() {
               const isSac = tenant.special_ad_category !== 'none';
 
               return (
-                <Card key={tenant.id}>
+                <Link key={tenant.id} href={pathsConfig.app.metaAdvisor}>
+                <Card className={'hover:border-primary h-full transition-colors'}>
                   <CardHeader>
                     <div className={'flex items-start justify-between gap-2'}>
                       <CardTitle>{tenant.name}</CardTitle>
@@ -118,6 +122,7 @@ export default async function ClientsPage() {
                     ) : null}
                   </CardContent>
                 </Card>
+                </Link>
               );
             })}
           </div>

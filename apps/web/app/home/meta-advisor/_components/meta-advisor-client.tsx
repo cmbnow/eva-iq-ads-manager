@@ -92,10 +92,25 @@ export function MetaAdvisorClient() {
   const [saving, setSaving] = useState(false);
   const [viewingSaved, setViewingSaved] = useState(false);
 
-  // Always load history when the page opens (not just after an upload).
+  // On open: load history AND auto-open the most recent report so the page is
+  // never blank — you land on graphs, ad list, and trends immediately.
   useEffect(() => {
     getHistory()
-      .then(setHistory)
+      .then((list) => {
+        setHistory(list);
+        const latest = list[0];
+        if (latest) {
+          getSnapshotAnalysis(latest.id)
+            .then((a) => {
+              if (a) {
+                setResult(a);
+                setViewingSaved(true);
+                setFileName(`Latest report · ${latest.periodStart} → ${latest.periodEnd}`);
+              }
+            })
+            .catch(() => {});
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -167,7 +182,7 @@ export function MetaAdvisorClient() {
         <>
           {viewingSaved ? (
             <div className={'flex items-center gap-2 rounded-md border border-blue-500/30 bg-blue-50 px-3 py-2 text-sm text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'}>
-              <History className={'h-4 w-4'} /> Viewing a saved report. Upload a newer CSV to add the latest period.
+              <History className={'h-4 w-4'} /> Showing your most recent report. Upload a newer CSV to add a new period.
             </div>
           ) : null}
 

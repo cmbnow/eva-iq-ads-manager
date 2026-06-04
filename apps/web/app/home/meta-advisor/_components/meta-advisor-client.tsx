@@ -297,6 +297,7 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
     daysUntilEnd: ad.daysUntilEnd,
     adSetWeeklyPurchases: ad.adSetWeeklyPurchases ?? 0,
     icSwitchQualifies: ad.icSwitchQualifies ?? false,
+    budgetStructure: ad.budgetStructure ?? 'ABO',
   };
   const accountCtx = {
     period: `${account.reportStart} → ${account.reportEnd}`,
@@ -404,6 +405,14 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
             <span className={'font-medium text-green-600'}>clears 50/wk → Purchase switch OK</span>
           ) : (
             <span className={'text-muted-foreground'}>hold on Initiate Checkout (needs ~50/wk to switch)</span>
+          )}
+        </p>
+        <p className={'mt-1 text-xs'}>
+          Budget:{' '}
+          {(ad.budgetStructure ?? 'ABO') === 'CBO' ? (
+            <span className={'font-medium text-cyan-600'}>Campaign budget (CBO) — adjust at the campaign level; Meta distributes it</span>
+          ) : (
+            <span className={'text-muted-foreground'}>Ad-set budget (ABO) — set this ad set&apos;s budget directly</span>
           )}
         </p>
       </div>

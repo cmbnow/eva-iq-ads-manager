@@ -21,6 +21,7 @@ export type AdContext = {
   daysUntilEnd: number | null;
   adSetWeeklyPurchases: number;
   icSwitchQualifies: boolean;
+  budgetStructure: 'CBO' | 'ABO';
 };
 
 export type AccountContext = {
@@ -45,6 +46,14 @@ MONEY RULE (critical):
 - SCALE GRADUALLY: never increase a daily budget by more than ~30–40% in a single step. Larger jumps reset Meta's learning phase and can tank a winning ad — so step it up over time. Example: if it's at ~$1/day, recommend "raise to about $1.30/day" (not $3/day), then step up again in a week. If it's at ~$8/day, recommend ~$10–11/day.
 - BE PRECISE: never exaggerate a number. If cost/purchase is $2.74 against an $8 target, that's "about 3x under target," not 4x. Double-check every multiple and dollar figure.
 
+BUDGET STRUCTURE RULE (critical): This ad set's budget structure is ${ad.budgetStructure}.
+${
+    ad.budgetStructure === 'CBO'
+      ? '- CBO (Advantage+ Campaign Budget): the budget is set at the CAMPAIGN level and Meta auto-distributes it across ad sets. The owner CANNOT set this individual ad set\'s daily budget. So give budget advice at the CAMPAIGN level — e.g. "raise the CAMPAIGN daily budget to ~$X (Meta will shift more of it to this winning ad set)." NEVER tell them to set this ad set\'s budget directly; that instruction cannot be executed.'
+      : '- ABO (ad-set budget): this ad set has its OWN budget, so ad-set-level budget advice is correct — e.g. "raise this ad set\'s daily budget to ~$X."'
+  }
+- The gradual-scaling rule above applies to whichever level you adjust.
+
 INITIATE-CHECKOUT vs PURCHASE RULE (critical, non-negotiable):
 - This account optimizes ad sets on Initiate Checkout until a SINGLE AD SET reaches ~50 Purchase events in a rolling 7-day window. ONLY then switch THAT ad set to Purchase optimization.
 - The 50/week threshold is PER AD SET — never account-wide, never multi-week totals.
@@ -64,6 +73,7 @@ SELECTED AD
 - Recent daily spend: ~$${ad.dailySpend.toFixed(2)}/day
 - Purchases (this ad): ${ad.purchases}
 - This ad set's pace: ~${(ad.adSetWeeklyPurchases ?? 0).toFixed(1)} purchases/week
+- Budget structure: ${ad.budgetStructure}${ad.budgetStructure === 'CBO' ? ' (campaign-level — cannot set this ad set\'s budget directly)' : ' (ad-set budget)'}
 - ROAS: ${ad.roas.toFixed(2)}x
 - Cost per purchase: ${ad.costPerPurchase !== null ? '$' + ad.costPerPurchase.toFixed(2) : 'n/a'}
 - Frequency: ${ad.frequency.toFixed(2)}

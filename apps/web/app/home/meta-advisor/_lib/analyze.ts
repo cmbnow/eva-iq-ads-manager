@@ -36,6 +36,7 @@ export type AdAnalysis = {
   daysUntilEnd: number | null; // days from today until it ends
   adSetWeeklyPurchases: number; // this ad set's purchases per 7-day window
   icSwitchQualifies: boolean; // ad set clears ~50 purchases/week => Purchase switch ok
+  budgetStructure: 'CBO' | 'ABO'; // CBO = campaign budget (Meta distributes); ABO = ad-set budget
   flags: Flag[];
   recommendation: string;
 };
@@ -162,6 +163,7 @@ export function analyzeMetaCsv(text: string): AnalysisResult {
     start: headerIndex(headers, 'reporting starts'),
     end: headerIndex(headers, 'reporting ends'),
     ends: exactHeaderIndex(headers, 'ends'), // event/ad end date column
+    adSetBudget: headerIndex(headers, 'ad set budget'), // "Using campaign budget" => CBO
   };
 
   if (col.spend === -1 || col.roas === -1) {
@@ -184,6 +186,13 @@ export function analyzeMetaCsv(text: string): AnalysisResult {
     const revenue = spend * roas;
     const cpp = purchases > 0 ? spend / purchases : null;
     const quality = get(col.quality) || '-';
+
+    const adSetBudgetRaw = get(col.adSetBudget);
+    const budgetStructure: 'CBO' | 'ABO' = adSetBudgetRaw
+      .toLowerCase()
+      .includes('campaign')
+      ? 'CBO'
+      : 'ABO';
 
     const endsDate = get(col.ends);
     let daysUntilEnd: number | null = null;
@@ -275,6 +284,7 @@ export function analyzeMetaCsv(text: string): AnalysisResult {
       daysUntilEnd,
       adSetWeeklyPurchases: 0,
       icSwitchQualifies: false,
+      budgetStructure,
       flags,
       recommendation,
     });

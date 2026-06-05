@@ -27,6 +27,15 @@ import {
 const dollars = (n: number) =>
   `$${Math.round(n).toLocaleString('en-US')}`;
 
+// Fees are sub-dollar — show full cents (e.g. -$1.03), never rounded to whole $.
+const cents = (n: number) =>
+  n.toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
 function daysFromToday(dateStr: string): string {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -326,7 +335,7 @@ export function OfferEngineClient() {
                 <span className={'text-muted-foreground'}>cap</span>
                 <input type={'number'} value={t.capacity} onChange={(e) => updateTicket(setTickets, i, 'capacity', Number(e.target.value))} className={'border-input bg-background h-8 w-16 rounded border px-2'} />
                 <span className={blended.per_tier[i] && blended.per_tier[i]!.venue_net_fee < 0 ? 'text-red-600' : 'text-cyan-600'}>
-                  net fee {dollars(blended.per_tier[i]?.venue_net_fee ?? 0)}
+                  net fee {cents(blended.per_tier[i]?.venue_net_fee ?? 0)}
                 </span>
                 {tickets.length > 1 ? (
                   <button className={'text-muted-foreground'} onClick={() => setTickets((p) => p.filter((_, j) => j !== i))}>remove</button>
@@ -335,12 +344,12 @@ export function OfferEngineClient() {
             ))}
             <button className={'text-primary text-xs'} onClick={() => setTickets((p) => [...p, { name: 'Tier', face_price: 0, fee: 0, fee_recipient: 'venue', capacity: 0 }])}>+ add ticket tier</button>
             <div className={'text-muted-foreground mt-2 flex flex-wrap items-center gap-x-3 gap-y-1'}>
-              <span>Stripe %<input type={'number'} value={globals.processor_pct} onChange={(e) => setGlobals((p) => ({ ...p, processor_pct: e.target.value }))} className={'border-input bg-background ml-1 h-7 w-16 rounded border px-1'} /></span>
+              <span>Processing fee %<input type={'number'} value={globals.processor_pct} onChange={(e) => setGlobals((p) => ({ ...p, processor_pct: e.target.value }))} className={'border-input bg-background ml-1 h-7 w-16 rounded border px-1'} /></span>
               <span>flat $<input type={'number'} value={globals.processor_flat} onChange={(e) => setGlobals((p) => ({ ...p, processor_flat: e.target.value }))} className={'border-input bg-background ml-1 h-7 w-14 rounded border px-1'} /></span>
               <span>tickets/order<input type={'number'} value={globals.basket} onChange={(e) => setGlobals((p) => ({ ...p, basket: e.target.value }))} className={'border-input bg-background ml-1 h-7 w-12 rounded border px-1'} /></span>
             </div>
             <p className={'mt-2 text-xs'}>
-              Blended FACE <strong>{dollars(blended.avg_ticket_price)}</strong> (feeds artist deal) · net booking fee/ticket <strong className={'text-cyan-600'}>{dollars(blended.net_fee_per_head)}</strong> → adds to TMAV alongside F&B. The artist never shares the fee.
+              Blended FACE <strong>{dollars(blended.avg_ticket_price)}</strong> (feeds artist deal) · net booking fee/ticket <strong className={'text-cyan-600'}>{cents(blended.net_fee_per_head)}</strong> → adds to TMAV alongside F&B. The artist never shares the fee.
             </p>
             {blended.warnings.map((w, i) => (
               <p key={i} className={'text-orange-500 text-xs'}>{w}</p>
@@ -403,7 +412,7 @@ function Results({ r }: { r: AnalysisResult }) {
             <p className={'text-2xl font-bold'}>{dollars(r.tmv)} / {dollars(r.tmav)}</p>
             <p className={'text-muted-foreground text-[11px]'}>
               TMAV = TMV {dollars(r.tmv)} + F&B {dollars(r.fb_per_head)}
-              {r.net_fee_per_head ? ` + fee ${dollars(r.net_fee_per_head)}` : ''}
+              {r.net_fee_per_head ? ` + fee ${cents(r.net_fee_per_head)}` : ''}
             </p>
           </div>
           <div>

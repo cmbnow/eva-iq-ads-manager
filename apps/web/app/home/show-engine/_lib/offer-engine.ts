@@ -31,6 +31,7 @@ export interface ShowInputs {
   baseline_attendance?: number;
   days_remaining: number;
   f_and_b_contribution_per_head?: number;
+  net_fee_per_head?: number; // venue-kept booking fee net of processor — rides into TMAV, NOT avg_ticket_price
   historical_cpa?: number;
 }
 
@@ -59,6 +60,7 @@ export interface AnalysisResult {
   tmv: number;
   tmav: number;
   fb_per_head: number;
+  net_fee_per_head: number;
   cpa_guardrails: { early: number; mid: number; late: number; ceiling: number };
   incremental_attendees: number;
   mrmc: number;
@@ -180,9 +182,13 @@ function modelScenario(
   marketingBudget: number,
 ): ScenarioResult {
   const fb = i.f_and_b_contribution_per_head ?? 12;
+  const netFee = i.net_fee_per_head ?? 0;
   const ticket_revenue = attendance * i.avg_ticket_price;
   const f_and_b_contribution = attendance * fb;
-  const total_revenue = ticket_revenue + f_and_b_contribution;
+  // Booking fee is real venue revenue, parallel to F&B. artistCost() below uses
+  // avg_ticket_price (face only), so the artist never shares the fee.
+  const fee_revenue = attendance * netFee;
+  const total_revenue = ticket_revenue + f_and_b_contribution + fee_revenue;
   const cost = artistCost(attendance, i);
   const total_cost = cost + i.fixed_show_expenses + marketingBudget;
   return {
@@ -291,8 +297,9 @@ function buildExecutiveRecommendation(
 
 export function analyzeShow(inputs: ShowInputs): AnalysisResult {
   const fb = inputs.f_and_b_contribution_per_head ?? 12;
+  const netFee = inputs.net_fee_per_head ?? 0;
   const tmv = calculateTMV(inputs);
-  const tmav = tmv + fb;
+  const tmav = tmv + fb + netFee; // booking fee adds to TMAV, parallel to F&B
 
   const conservative = modelScenario(inputs.conservative_attendance, inputs, 0);
   const target = modelScenario(inputs.target_attendance, inputs, 0);
@@ -341,6 +348,7 @@ export function analyzeShow(inputs: ShowInputs): AnalysisResult {
     tmv,
     tmav,
     fb_per_head: fb,
+    net_fee_per_head: netFee,
     cpa_guardrails: {
       early: 0.6 * tmav,
       mid: 0.75 * tmav,
@@ -367,4 +375,103 @@ export function analyzeShow(inputs: ShowInputs): AnalysisResult {
       support_budget_share: 0.2,
     },
   };
+}
+
+/* ===========================================================================
+ * Ticket tier pricing + booking-fee handling (ticket-tier-input-spec).
+ * FACE price -> avg_ticket_price (feeds the artist deal). Booking fee (net of
+ * processor) -> net_fee_per_head, which rides into TMAV like F&B. The fee is
+ * ALWAYS the venue's — never shared with the artist or promoter.
+ * ======================================================================== */
+
+export interface TicketTier {
+  name: string;
+  face_price: number;
+  fee: number;
+  fee_recipient: 'venue' | 'pass_through'; // fee is ALWAYS the venue's — never the artist's
+  capacity: number;
+  expected_mix_pct?: number; // 0..1
+}
+
+export interface TicketPricingGlobals {
+  processor_pct?: number; // default 0.029
+  processor_flat?: number; // default 0.30
+  avg_tickets_per_order?: number; // default 1
+}
+
+export interface BlendedPricing {
+  avg_ticket_price: number; // FACE only, capacity/mix-weighted -> feeds artist deal
+  net_fee_per_head: number; // venue-kept fee net of processor, weighted -> adds to TMAV
+  per_tier: {
+    name: string;
+    face_price: number;
+    fee: number;
+    processor_cost: number;
+    venue_net_fee: number; // what the venue actually keeps from the fee (can be negative)
+    weight: number; // share used in the blend
+  }[];
+  warnings: string[];
+}
+
+export function blendTicketPricing(
+  tiers: TicketTier[],
+  g: TicketPricingGlobals = {},
+): BlendedPricing {
+  const pct = g.processor_pct ?? 0.029;
+  const flat = g.processor_flat ?? 0.3;
+  const basket = Math.max(1, g.avg_tickets_per_order ?? 1);
+  const warnings: string[] = [];
+
+  if (tiers.length === 0) {
+    return { avg_ticket_price: 0, net_fee_per_head: 0, per_tier: [], warnings };
+  }
+
+  // weights: explicit mix if given, else by capacity
+  const haveMix = tiers.every((t) => t.expected_mix_pct != null);
+  const capTotal = tiers.reduce((s, t) => s + Math.max(0, t.capacity), 0);
+  const rawWeights = tiers.map((t) =>
+    haveMix
+      ? (t.expected_mix_pct as number)
+      : capTotal > 0
+        ? Math.max(0, t.capacity) / capTotal
+        : 1 / tiers.length,
+  );
+  const wSum = rawWeights.reduce((s, w) => s + w, 0) || 1;
+  const weights = rawWeights.map((w) => w / wSum);
+
+  const per_tier = tiers.map((t, i) => {
+    const gross = t.face_price + t.fee;
+    const processor_cost = pct * gross + flat / basket;
+    // The fee is always the venue's. 'venue' = keep remainder after the processor.
+    // 'pass_through' = the fee only offsets processing, so the venue keeps ~0.
+    // The artist NEVER receives any of the fee under either option.
+    let venue_net_fee = 0;
+    if (t.fee_recipient === 'venue') venue_net_fee = t.fee - processor_cost;
+    else if (t.fee_recipient === 'pass_through') venue_net_fee = 0;
+
+    if (t.fee_recipient === 'venue' && venue_net_fee < 0)
+      warnings.push(
+        `Tier "${t.name}": fee $${t.fee.toFixed(2)} does not cover the processor cost ($${processor_cost.toFixed(2)}) — you lose $${(-venue_net_fee).toFixed(2)}/ticket on the fee.`,
+      );
+
+    return {
+      name: t.name,
+      face_price: t.face_price,
+      fee: t.fee,
+      processor_cost,
+      venue_net_fee,
+      weight: weights[i]!,
+    };
+  });
+
+  const avg_ticket_price = per_tier.reduce(
+    (s, t) => s + t.face_price * t.weight,
+    0,
+  );
+  const net_fee_per_head = per_tier.reduce(
+    (s, t) => s + t.venue_net_fee * t.weight,
+    0,
+  );
+
+  return { avg_ticket_price, net_fee_per_head, per_tier, warnings };
 }

@@ -13,7 +13,9 @@ import {
   type BonusTier,
   type OfferStructure,
   type ShowInputs,
+  type TicketTier,
   analyzeShow,
+  blendTicketPricing,
 } from '../_lib/offer-engine';
 import {
   type SavedShow,
@@ -78,6 +80,21 @@ export function OfferEngineClient() {
   const [saved, setSaved] = useState<SavedShow[]>([]);
   const [parsing, setParsing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [tickets, setTickets] = useState<TicketTier[]>([
+    { name: 'General Admission', face_price: 25, fee: 0, fee_recipient: 'venue', capacity: 1000 },
+  ]);
+  const [globals, setGlobals] = useState({
+    processor_pct: '0.029',
+    processor_flat: '0.30',
+    basket: '1',
+  });
+
+  // Live: blended FACE price (feeds artist deal) + venue-kept fee/head (adds to TMAV).
+  const blended = blendTicketPricing(tickets, {
+    processor_pct: globals.processor_pct === '' ? undefined : Number(globals.processor_pct),
+    processor_flat: globals.processor_flat === '' ? undefined : Number(globals.processor_flat),
+    avg_tickets_per_order: globals.basket === '' ? undefined : Number(globals.basket),
+  });
 
   useEffect(() => {
     listAnalyses().then(setSaved).catch(() => {});
@@ -91,7 +108,8 @@ export function OfferEngineClient() {
     const num = (s: string, d?: number) => (s === '' ? d : Number(s));
     return {
       venue_capacity: Number(f.venue_capacity),
-      avg_ticket_price: Number(f.avg_ticket_price),
+      avg_ticket_price: blended.avg_ticket_price, // FACE only (from ticket tiers)
+      net_fee_per_head: blended.net_fee_per_head, // venue-kept fee -> TMAV
       offer_structure: f.offer_structure,
       guarantee: num(f.guarantee, 0),
       backend_promoter_share: num(f.backend_promoter_share),
@@ -157,7 +175,18 @@ export function OfferEngineClient() {
           sellout_attendance: x.sellout_attendance?.toString() ?? p.sellout_attendance,
         }));
         if (x.bonus_tiers?.length) setTiers(x.bonus_tiers);
-        setMsg('Prefilled from the sheet — please confirm every field, then Run analysis.');
+        if (x.avg_ticket_price != null) {
+          setTickets((p) => {
+            const first = p[0] ?? {
+              name: 'General Admission',
+              fee: 0,
+              fee_recipient: 'venue' as const,
+              capacity: 1000,
+            };
+            return [{ ...first, face_price: Number(x.avg_ticket_price) }, ...p.slice(1)];
+          });
+        }
+        setMsg('Prefilled from the sheet — confirm every field (incl. ticket face/fee per tier), then Run analysis.');
       } else setMsg(res.error);
     } catch {
       setMsg('Could not read that file.');
@@ -185,6 +214,15 @@ export function OfferEngineClient() {
       historical_cpa: i.historical_cpa != null ? String(i.historical_cpa) : '',
     });
     if (i.bonus_tiers) setTiers(i.bonus_tiers);
+    setTickets([
+      {
+        name: 'General Admission',
+        face_price: i.avg_ticket_price ?? 0,
+        fee: 0,
+        fee_recipient: 'venue',
+        capacity: i.venue_capacity ?? 0,
+      },
+    ]);
     setResult(s.result);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -218,7 +256,6 @@ export function OfferEngineClient() {
           />
           <Field label={'Days remaining'} v={f.days_remaining} on={(x) => set('days_remaining', x)} />
           <Field label={'Venue capacity'} v={f.venue_capacity} on={(x) => set('venue_capacity', x)} />
-          <Field label={'Avg ticket price ($)'} v={f.avg_ticket_price} on={(x) => set('avg_ticket_price', x)} />
           <div>
             <p className={'text-muted-foreground mb-1 text-xs'}>Offer structure</p>
             <select
@@ -243,6 +280,46 @@ export function OfferEngineClient() {
           <Field label={'Sellout attendance'} v={f.sellout_attendance} on={(x) => set('sellout_attendance', x)} />
           <Field label={'Baseline (optional)'} v={f.baseline_attendance} on={(x) => set('baseline_attendance', x)} />
           <Field label={'Historical CPA (optional)'} v={f.historical_cpa} on={(x) => set('historical_cpa', x)} />
+
+          {/* Ticket tiers + booking fee (face feeds artist deal; fee is the venue's) */}
+          <div className={'col-span-2 md:col-span-3'}>
+            <p className={'text-muted-foreground mb-1 text-xs'}>
+              Ticket tiers — the artist deal uses FACE price only; the booking fee is always the venue&apos;s (adds to your margin, never shared).
+            </p>
+            {tickets.map((t, i) => (
+              <div key={i} className={'mb-1 flex flex-wrap items-center gap-2 text-xs'}>
+                <input value={t.name} onChange={(e) => updateTicket(setTickets, i, 'name', e.target.value)} placeholder={'Tier'} className={'border-input bg-background h-8 w-36 rounded border px-2'} />
+                <span className={'text-muted-foreground'}>face $</span>
+                <input type={'number'} value={t.face_price} onChange={(e) => updateTicket(setTickets, i, 'face_price', Number(e.target.value))} className={'border-input bg-background h-8 w-20 rounded border px-2'} />
+                <span className={'text-muted-foreground'}>fee $</span>
+                <input type={'number'} value={t.fee} onChange={(e) => updateTicket(setTickets, i, 'fee', Number(e.target.value))} className={'border-input bg-background h-8 w-16 rounded border px-2'} />
+                <select value={t.fee_recipient} onChange={(e) => updateTicket(setTickets, i, 'fee_recipient', e.target.value)} className={'border-input bg-background h-8 rounded border px-1'}>
+                  <option value={'venue'}>venue keeps</option>
+                  <option value={'pass_through'}>pass-through</option>
+                </select>
+                <span className={'text-muted-foreground'}>cap</span>
+                <input type={'number'} value={t.capacity} onChange={(e) => updateTicket(setTickets, i, 'capacity', Number(e.target.value))} className={'border-input bg-background h-8 w-16 rounded border px-2'} />
+                <span className={blended.per_tier[i] && blended.per_tier[i]!.venue_net_fee < 0 ? 'text-red-600' : 'text-cyan-600'}>
+                  net fee {dollars(blended.per_tier[i]?.venue_net_fee ?? 0)}
+                </span>
+                {tickets.length > 1 ? (
+                  <button className={'text-muted-foreground'} onClick={() => setTickets((p) => p.filter((_, j) => j !== i))}>remove</button>
+                ) : null}
+              </div>
+            ))}
+            <button className={'text-primary text-xs'} onClick={() => setTickets((p) => [...p, { name: 'Tier', face_price: 0, fee: 0, fee_recipient: 'venue', capacity: 0 }])}>+ add ticket tier</button>
+            <div className={'text-muted-foreground mt-2 flex flex-wrap items-center gap-x-3 gap-y-1'}>
+              <span>Stripe %<input type={'number'} value={globals.processor_pct} onChange={(e) => setGlobals((p) => ({ ...p, processor_pct: e.target.value }))} className={'border-input bg-background ml-1 h-7 w-16 rounded border px-1'} /></span>
+              <span>flat $<input type={'number'} value={globals.processor_flat} onChange={(e) => setGlobals((p) => ({ ...p, processor_flat: e.target.value }))} className={'border-input bg-background ml-1 h-7 w-14 rounded border px-1'} /></span>
+              <span>tickets/order<input type={'number'} value={globals.basket} onChange={(e) => setGlobals((p) => ({ ...p, basket: e.target.value }))} className={'border-input bg-background ml-1 h-7 w-12 rounded border px-1'} /></span>
+            </div>
+            <p className={'mt-2 text-xs'}>
+              Blended FACE <strong>{dollars(blended.avg_ticket_price)}</strong> (feeds artist deal) · net booking fee/ticket <strong className={'text-cyan-600'}>{dollars(blended.net_fee_per_head)}</strong> → adds to TMAV alongside F&B. The artist never shares the fee.
+            </p>
+            {blended.warnings.map((w, i) => (
+              <p key={i} className={'text-orange-500 text-xs'}>{w}</p>
+            ))}
+          </div>
 
           {f.offer_structure === 'bonus_escalator' ? (
             <div className={'col-span-2 md:col-span-3'}>
@@ -298,6 +375,10 @@ function Results({ r }: { r: AnalysisResult }) {
           <div>
             <p className={'text-muted-foreground text-xs'}>TMV / TMAV</p>
             <p className={'text-2xl font-bold'}>{dollars(r.tmv)} / {dollars(r.tmav)}</p>
+            <p className={'text-muted-foreground text-[11px]'}>
+              TMAV = TMV {dollars(r.tmv)} + F&B {dollars(r.fb_per_head)}
+              {r.net_fee_per_head ? ` + fee ${dollars(r.net_fee_per_head)}` : ''}
+            </p>
           </div>
           <div>
             <p className={'text-muted-foreground text-xs'}>Deal score</p>
@@ -431,6 +512,16 @@ function updateTier(
   val: number,
 ) {
   setTiers((p) => p.map((t, j) => (j === i ? { ...t, [key]: val } : t)));
+}
+
+function updateTicket(
+  setTickets: React.Dispatch<React.SetStateAction<TicketTier[]>>,
+  i: number,
+  key: keyof TicketTier,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  val: any,
+) {
+  setTickets((p) => p.map((t, j) => (j === i ? { ...t, [key]: val } : t)));
 }
 
 function Stat({ label, value, good, bad }: { label: string; value: string; good?: boolean; bad?: boolean }) {

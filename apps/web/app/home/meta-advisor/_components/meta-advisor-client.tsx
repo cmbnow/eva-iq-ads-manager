@@ -27,6 +27,7 @@ import {
 } from '../_lib/snapshots';
 import { ACCENT_2, MetricTile, PerfChart } from '../../_components/dashboard-ui';
 import { type SavedShow, listAnalyses } from '../../show-engine/_lib/offer-actions';
+import { decideScaling } from '../../show-engine/_lib/scaling-advisor';
 
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -289,6 +290,7 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
 
   const [shows, setShows] = useState<SavedShow[]>([]);
   const [selectedShowId, setSelectedShowId] = useState('');
+  const [icRate, setIcRate] = useState(''); // IC→purchase rate (%), optional
   const selectedShow = shows.find((s) => s.id === selectedShowId);
   const showCtx = selectedShow
     ? {
@@ -306,6 +308,25 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
         dealScore: selectedShow.result.deal_score,
       }
     : undefined;
+
+  // Scaling bridge: live CPA (or cost-per-IC) vs the show's TMAV → §11 action.
+  const optimizationMode: 'initiate_checkout' | 'purchase' = ad.resultType
+    .toLowerCase()
+    .includes('purchase')
+    ? 'purchase'
+    : 'initiate_checkout';
+  const costPerIC = ad.results > 0 ? ad.spend / ad.results : null;
+  const scaling = showCtx
+    ? decideScaling({
+        tmav: showCtx.tmav,
+        optimizationMode,
+        budgetStructure: ad.budgetStructure ?? 'ABO',
+        liveCostPerPurchase: ad.cpp,
+        liveCostPerIC: optimizationMode === 'initiate_checkout' ? costPerIC : null,
+        estimatedICtoPurchaseRate: icRate ? Number(icRate) / 100 : null,
+        frequency: ad.frequency,
+      })
+    : null;
 
   const adCtx = {
     adName: ad.adName,
@@ -532,7 +553,46 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
           ) : selectedShow ? (
             <span className={'font-medium text-cyan-600'}>Budget calculated from this run ✓</span>
           ) : null}
+          {selectedShow ? (
+            <span className={'flex items-center gap-1'}>
+              · IC→purchase rate
+              <input
+                type={'number'}
+                value={icRate}
+                onChange={(e) => setIcRate(e.target.value)}
+                placeholder={'opt. e.g. 40'}
+                className={'border-input bg-background h-7 w-20 rounded border px-2'}
+              />
+              %
+            </span>
+          ) : null}
         </div>
+
+        {scaling ? (
+          <div className={'mt-2 rounded-md border p-3 text-xs'}>
+            <div className={'flex items-center justify-between'}>
+              <span className={'font-semibold'}>Scaling decision (vs TMAV {money(showCtx!.tmav)})</span>
+              <Badge
+                variant={
+                  scaling.zone === 'aggressive' || scaling.zone === 'scale'
+                    ? 'success'
+                    : scaling.zone === 'hold' || scaling.zone === 'late'
+                      ? 'warning'
+                      : scaling.zone === 'danger'
+                        ? 'destructive'
+                        : 'secondary'
+                }
+              >
+                {scaling.zone.replace('_', ' ')}
+              </Badge>
+            </div>
+            <p className={'mt-1 font-medium'}>{scaling.action}</p>
+            <p className={'text-muted-foreground'}>{scaling.reason}</p>
+            {scaling.caveats.map((c, i) => (
+              <p key={i} className={'text-orange-500'}>⚠ {c}</p>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className={'space-y-3 border-b p-4'}>

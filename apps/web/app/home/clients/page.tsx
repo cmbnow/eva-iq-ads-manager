@@ -45,7 +45,11 @@ export default async function ClientsPage() {
       .from('tenants')
       .select('*')
       .order('created_at', { ascending: true }),
-    supabase.from('tenant_platform_connections').select('*'),
+    supabase
+      .from('tenant_platform_connections')
+      .select(
+        'tenant_id, platform, connection_status, is_enabled, capability_tier, external_account_id, external_account_name, connected_at',
+      ),
   ]);
 
   const metaByTenant = new Map(

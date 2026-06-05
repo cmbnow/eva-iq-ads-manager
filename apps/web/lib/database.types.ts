@@ -70,6 +70,117 @@ export type Database = {
         };
         Relationships: [];
       };
+      ad_accounts: {
+        Row: {
+          connection_id: string | null;
+          created_at: string;
+          data_path: Database['public']['Enums']['account_data_path'];
+          discovered_at: string | null;
+          id: string;
+          is_ads_mcp_enabled: boolean;
+          is_queryable: boolean;
+          is_selected: boolean;
+          meta_account_id: string;
+          name: string | null;
+          optimization_event: Database['public']['Enums']['optimization_event'];
+          pixel_id: string | null;
+          tenant_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          connection_id?: string | null;
+          created_at?: string;
+          data_path?: Database['public']['Enums']['account_data_path'];
+          discovered_at?: string | null;
+          id?: string;
+          is_ads_mcp_enabled?: boolean;
+          is_queryable?: boolean;
+          is_selected?: boolean;
+          meta_account_id: string;
+          name?: string | null;
+          optimization_event?: Database['public']['Enums']['optimization_event'];
+          pixel_id?: string | null;
+          tenant_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          connection_id?: string | null;
+          created_at?: string;
+          data_path?: Database['public']['Enums']['account_data_path'];
+          discovered_at?: string | null;
+          id?: string;
+          is_ads_mcp_enabled?: boolean;
+          is_queryable?: boolean;
+          is_selected?: boolean;
+          meta_account_id?: string;
+          name?: string | null;
+          optimization_event?: Database['public']['Enums']['optimization_event'];
+          pixel_id?: string | null;
+          tenant_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'ad_accounts_tenant_id_fkey';
+            columns: ['tenant_id'];
+            isOneToOne: false;
+            referencedRelation: 'tenants';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'ad_accounts_connection_id_fkey';
+            columns: ['connection_id'];
+            isOneToOne: false;
+            referencedRelation: 'tenant_platform_connections';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      meta_tokens: {
+        Row: {
+          connection_id: string | null;
+          created_at: string;
+          id: string;
+          meta_token_secret_id: string;
+          scopes: string[];
+          tenant_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          connection_id?: string | null;
+          created_at?: string;
+          id?: string;
+          meta_token_secret_id: string;
+          scopes?: string[];
+          tenant_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          connection_id?: string | null;
+          created_at?: string;
+          id?: string;
+          meta_token_secret_id?: string;
+          scopes?: string[];
+          tenant_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'meta_tokens_tenant_id_fkey';
+            columns: ['tenant_id'];
+            isOneToOne: true;
+            referencedRelation: 'tenants';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'meta_tokens_connection_id_fkey';
+            columns: ['connection_id'];
+            isOneToOne: false;
+            referencedRelation: 'tenant_platform_connections';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       tenants: {
         Row: {
           created_at: string;
@@ -263,9 +374,11 @@ export type Database = {
       };
     };
     Enums: {
+      account_data_path: 'mcp' | 'csv';
       ad_platform: 'meta' | 'google' | 'youtube' | 'tiktok';
       capability_tier: 'advisor' | 'managed' | 'autonomous';
       consent_status: 'granted' | 'denied' | 'unknown';
+      optimization_event: 'purchase' | 'initiate_checkout';
       platform_connection_status:
         | 'not_connected'
         | 'connected'

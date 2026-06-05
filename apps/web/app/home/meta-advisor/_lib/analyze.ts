@@ -25,6 +25,12 @@ export type Flag = {
   text: string;
 };
 
+// What the ad set OPTIMIZES on. This is authoritative for how to read the
+// "Results" column: in IC mode Results are Initiate-Checkouts; in Purchase mode
+// Results are Purchases. Never infer the cost metric from the raw Results count
+// without knowing this — that silently turns cost-per-IC into cost-per-purchase.
+export type OptimizationMode = 'initiate_checkout' | 'purchase';
+
 export type AdAnalysis = {
   adName: string;
   adSetName: string;
@@ -32,6 +38,10 @@ export type AdAnalysis = {
   purchases: number;
   results: number;
   resultType: string; // e.g. "Initiate Checkout" or "Purchase"
+  optimizationMode: OptimizationMode; // authoritative: what THIS ad set optimizes on
+  optimizationModeAssumed: boolean; // true if the export didn't state it and we defaulted to IC
+  costPerIC: number | null; // cost per Initiate Checkout — ONLY when IC-optimized, else null
+  costPerPurchase: number | null; // cost per Purchase (the real purchase CPA) — same as cpp
   roas: number;
   revenue: number;
   cpp: number | null; // cost per purchase
@@ -202,6 +212,31 @@ export function analyzeMetaCsv(text: string): AnalysisResult {
       ? 'CBO'
       : 'ABO';
 
+    // Optimization mode is AUTHORITATIVE — read it from the explicit "Result
+    // indicator" event, NOT from the generic Results count. Meta exports don't
+    // always carry it; when absent, default to Initiate Checkout (this account's
+    // baseline) and mark it assumed so the UI can say so.
+    const indicatorRaw = get(col.resultIndicator).toLowerCase();
+    let optimizationMode: OptimizationMode;
+    let optimizationModeAssumed = false;
+    if (indicatorRaw.includes('purchase')) {
+      optimizationMode = 'purchase';
+    } else if (indicatorRaw.includes('initiate_checkout')) {
+      optimizationMode = 'initiate_checkout';
+    } else {
+      optimizationMode = 'initiate_checkout';
+      optimizationModeAssumed = true;
+    }
+    // Label the cost metric by the mode. costPerPurchase is always the true
+    // purchase CPA (spend/purchases). costPerIC exists ONLY in IC mode, where the
+    // Results column counts Initiate-Checkouts. In Purchase mode there is no IC
+    // count, so costPerIC is null — never reuse spend/results as if it were IC.
+    const costPerPurchase = cpp;
+    const costPerIC =
+      optimizationMode === 'initiate_checkout' && results > 0
+        ? spend / results
+        : null;
+
     const endsDate = get(col.ends);
     let daysUntilEnd: number | null = null;
     if (endsDate) {
@@ -212,6 +247,12 @@ export function analyzeMetaCsv(text: string): AnalysisResult {
     }
 
     const flags: Flag[] = [];
+    if (optimizationModeAssumed) {
+      flags.push({
+        level: 'warn',
+        text: 'Optimization goal not in this export — assumed Initiate Checkout. Confirm in Ads Manager (matters once an ad set switches to Purchase).',
+      });
+    }
     if (frequency >= BENCHMARKS.frequencyCeiling) {
       flags.push({
         level: 'warn',
@@ -280,6 +321,10 @@ export function analyzeMetaCsv(text: string): AnalysisResult {
       purchases,
       results,
       resultType: prettyResultType(get(col.resultIndicator)),
+      optimizationMode,
+      optimizationModeAssumed,
+      costPerIC,
+      costPerPurchase,
       roas,
       revenue,
       cpp,

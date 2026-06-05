@@ -141,3 +141,32 @@ export function decideScaling(p: {
 
   return decision;
 }
+
+/**
+ * Render the engine's scaling decision as an AUTHORITATIVE prompt block for the
+ * AI plan. The AI must REPORT and explain this decision — not re-derive its own
+ * scaling verdict from the same numbers (that's how two parts of the tool drift
+ * and contradict each other in front of the user). Engine decides; Claude
+ * translates. Acceptance: the AI plan's scale/hold/danger stance must match this
+ * zone and budget direction, never contradict it.
+ */
+export function scalingPromptBlock(s: {
+  zone: string;
+  action: string;
+  reason: string;
+  budgetChangePct: number | null;
+  caveats: string[];
+}): string {
+  const direction =
+    s.budgetChangePct == null
+      ? 'DO NOT INCREASE the budget (hold, or reduce if danger).'
+      : `Increase the budget by about ${s.budgetChangePct}% (gradually — never reset learning).`;
+  return `ENGINE SCALING DECISION (AUTHORITATIVE — this is the single source of truth; report it, do NOT reach your own scaling conclusion):
+- Zone: ${s.zone}
+- Required action: ${s.action}
+- Budget direction: ${direction}
+- Why: ${s.reason}${
+    s.caveats.length ? `\n- Caveats you must pass on: ${s.caveats.join(' ')}` : ''
+  }
+Your job is to TRANSLATE this into plain, warm language and concrete next steps for the owner. Your scale/hold/danger stance and your budget direction MUST match the zone and budget direction above. If your own instinct differs, defer to this engine decision and explain it — do not contradict it.`;
+}

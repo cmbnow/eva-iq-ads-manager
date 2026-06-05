@@ -1,6 +1,7 @@
 'use server';
 
 import { callClaude, extractJson } from '~/lib/server/ai';
+import { scalingPromptBlock } from '../../show-engine/_lib/scaling-advisor';
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
@@ -38,6 +39,15 @@ export type AdContext = {
     defenseTotal: number;
     daysRemaining: number;
     dealScore: string;
+  };
+  // Engine scaling verdict (decideScaling). When present, the AI MUST report this
+  // decision rather than derive its own — engine decides, Claude translates.
+  scaling?: {
+    zone: string;
+    action: string;
+    reason: string;
+    budgetChangePct: number | null;
+    caveats: string[];
   };
 };
 
@@ -90,7 +100,7 @@ A profitability run is linked: "${ad.show.name}" (deal score ${ad.show.dealScore
 - TELL the owner the EXACT budget to set: pick the tier by deal score (A/B → Core or Aggressive; C → Defense), expressed as a LIFETIME budget of about that tier total across the ${ad.show.daysRemaining}-day flight (or the per-day figure if they run daily budgets). This is the calculated, profitable budget — recommend it directly.${ad.campaignBudget != null ? ` The owner's current budget is $${ad.campaignBudget} ${ad.budgetPeriod ?? ''}; compare to the recommended tier and advise the gradual move toward it (≤~30–40%/step).` : ''}`
       : ''
   }
-
+${ad.scaling ? '\n' + scalingPromptBlock(ad.scaling) + '\n' : ''}
 INITIATE-CHECKOUT vs PURCHASE RULE (critical, non-negotiable):
 - This account optimizes ad sets on Initiate Checkout until a SINGLE AD SET reaches ~50 Purchase events in a rolling 7-day window. ONLY then switch THAT ad set to Purchase optimization.
 - The 50/week threshold is PER AD SET — never account-wide, never multi-week totals.

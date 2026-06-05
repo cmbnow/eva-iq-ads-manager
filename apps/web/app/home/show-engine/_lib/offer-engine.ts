@@ -33,6 +33,12 @@ export interface ShowInputs {
   f_and_b_contribution_per_head?: number;
   net_fee_per_head?: number; // venue-kept booking fee net of processor — rides into TMAV, NOT avg_ticket_price
   historical_cpa?: number;
+  // SOURCE OF TRUTH for the blend: the full per-tier ticket structure and the
+  // processor globals used. avg_ticket_price / net_fee_per_head above are the
+  // computed result; these reproduce them exactly on reload. (TicketTier /
+  // TicketPricingGlobals are declared below — TS hoists type references.)
+  ticket_tiers?: TicketTier[];
+  ticket_pricing_globals?: TicketPricingGlobals;
 }
 
 export interface BudgetTier {

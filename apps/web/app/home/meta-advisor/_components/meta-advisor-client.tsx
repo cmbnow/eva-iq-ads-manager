@@ -310,18 +310,27 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
     : undefined;
 
   // Scaling bridge: live CPA (or cost-per-IC) vs the show's TMAV → §11 action.
-  const optimizationMode: 'initiate_checkout' | 'purchase' = ad.resultType
-    .toLowerCase()
-    .includes('purchase')
-    ? 'purchase'
-    : 'initiate_checkout';
-  const costPerIC = ad.results > 0 ? ad.spend / ad.results : null;
+  // optimizationMode comes from analyze.ts (authoritative). Fallback only covers
+  // OLD saved snapshots from before this field existed.
+  const optimizationMode: 'initiate_checkout' | 'purchase' =
+    ad.optimizationMode ??
+    (ad.resultType.toLowerCase().includes('purchase')
+      ? 'purchase'
+      : 'initiate_checkout');
+  // Use the analyzer's labeled metrics. In Purchase mode costPerIC is null, so we
+  // never divide a purchase CPA by the IC→purchase rate (the event-type-blind bug).
+  const costPerIC =
+    ad.costPerIC ??
+    (optimizationMode === 'initiate_checkout' && ad.results > 0
+      ? ad.spend / ad.results
+      : null);
+  const costPerPurchase = ad.costPerPurchase ?? ad.cpp;
   const scaling = showCtx
     ? decideScaling({
         tmav: showCtx.tmav,
         optimizationMode,
         budgetStructure: ad.budgetStructure ?? 'ABO',
-        liveCostPerPurchase: ad.cpp,
+        liveCostPerPurchase: optimizationMode === 'purchase' ? costPerPurchase : null,
         liveCostPerIC: optimizationMode === 'initiate_checkout' ? costPerIC : null,
         estimatedICtoPurchaseRate: icRate ? Number(icRate) / 100 : null,
         frequency: ad.frequency,
@@ -347,6 +356,17 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
     campaignBudget: campaignBudget ? Number(campaignBudget) : undefined,
     budgetPeriod,
     show: showCtx,
+    // Fix 3: the engine's scaling verdict travels into the AI plan so the plan
+    // reports it instead of deriving a parallel (possibly contradictory) one.
+    scaling: scaling
+      ? {
+          zone: scaling.zone,
+          action: scaling.action,
+          reason: scaling.reason,
+          budgetChangePct: scaling.budgetChangePct,
+          caveats: scaling.caveats,
+        }
+      : undefined,
   };
   const accountCtx = {
     period: `${account.reportStart} → ${account.reportEnd}`,
@@ -383,9 +403,11 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
       showInit.current = true;
       return;
     }
+    // Reload when the linked run changes OR the engine's scaling zone flips, so
+    // the AI plan always reports the current engine decision (Fix 3 alignment).
     reloadPlan();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedShowId]);
+  }, [selectedShowId, scaling?.zone]);
 
   function reloadPlan(overrideAmt?: string, overridePeriod?: 'daily' | 'lifetime') {
     const amt = overrideAmt ?? campaignBudget;

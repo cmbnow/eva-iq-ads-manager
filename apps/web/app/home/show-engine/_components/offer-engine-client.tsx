@@ -104,12 +104,24 @@ export function OfferEngineClient() {
     setF((p) => ({ ...p, [k]: v }));
   }
 
+  function pricingGlobals() {
+    return {
+      processor_pct: globals.processor_pct === '' ? undefined : Number(globals.processor_pct),
+      processor_flat: globals.processor_flat === '' ? undefined : Number(globals.processor_flat),
+      avg_tickets_per_order: globals.basket === '' ? undefined : Number(globals.basket),
+    };
+  }
+
   function buildInputs(): ShowInputs {
     const num = (s: string, d?: number) => (s === '' ? d : Number(s));
     return {
       venue_capacity: Number(f.venue_capacity),
       avg_ticket_price: blended.avg_ticket_price, // FACE only (from ticket tiers)
       net_fee_per_head: blended.net_fee_per_head, // venue-kept fee -> TMAV
+      // Persist the FULL tier structure + globals so a reloaded show reproduces
+      // the exact blend (not a collapsed single GA tier).
+      ticket_tiers: tickets,
+      ticket_pricing_globals: pricingGlobals(),
       offer_structure: f.offer_structure,
       guarantee: num(f.guarantee, 0),
       backend_promoter_share: num(f.backend_promoter_share),
@@ -214,15 +226,29 @@ export function OfferEngineClient() {
       historical_cpa: i.historical_cpa != null ? String(i.historical_cpa) : '',
     });
     if (i.bonus_tiers) setTiers(i.bonus_tiers);
-    setTickets([
-      {
-        name: 'General Admission',
-        face_price: i.avg_ticket_price ?? 0,
-        fee: 0,
-        fee_recipient: 'venue',
-        capacity: i.venue_capacity ?? 0,
-      },
-    ]);
+    // Rebuild the tier UI from the persisted tiers (source of truth). Fall back to
+    // a single GA tier only for OLD saves made before tiers were persisted.
+    if (i.ticket_tiers && i.ticket_tiers.length) {
+      setTickets(i.ticket_tiers);
+    } else {
+      setTickets([
+        {
+          name: 'General Admission',
+          face_price: i.avg_ticket_price ?? 0,
+          fee: 0,
+          fee_recipient: 'venue',
+          capacity: i.venue_capacity ?? 0,
+        },
+      ]);
+    }
+    if (i.ticket_pricing_globals) {
+      const g = i.ticket_pricing_globals;
+      setGlobals({
+        processor_pct: g.processor_pct != null ? String(g.processor_pct) : '',
+        processor_flat: g.processor_flat != null ? String(g.processor_flat) : '',
+        basket: g.avg_tickets_per_order != null ? String(g.avg_tickets_per_order) : '',
+      });
+    }
     setResult(s.result);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }

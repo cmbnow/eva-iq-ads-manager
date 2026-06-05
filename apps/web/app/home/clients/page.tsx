@@ -33,7 +33,23 @@ const TIER_LABELS: Record<string, string> = {
   autonomous: 'Autonomous mode',
 };
 
-export default async function ClientsPage() {
+const META_ERRORS: Record<string, string> = {
+  config: 'Meta isn’t configured yet (the app credentials are missing). Set them up and try again.',
+  denied: 'You canceled the Meta connection — nothing was changed.',
+  state: 'The connection link expired or didn’t match. Please click Connect again.',
+  missing: 'The connection response was incomplete. Please click Connect again.',
+  auth: 'Please sign in, then click Connect again.',
+  forbidden: 'You don’t have access to that client.',
+  exchange: 'Meta wouldn’t complete the sign-in. Please try Connect again.',
+  store: 'Connected, but saving the secure token failed. Please try Connect again.',
+};
+
+export default async function ClientsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ meta?: string; meta_error?: string }>;
+}) {
+  const sp = await searchParams;
   // Require a logged-in user (redirects to sign-in otherwise).
   await requireUserInServerComponent();
 
@@ -66,6 +82,42 @@ export default async function ClientsPage() {
       />
 
       <PageBody>
+        <div className={'mb-4 flex flex-wrap items-center justify-between gap-3'}>
+          <p className={'text-muted-foreground text-sm'}>
+            Connect a client&apos;s Meta account to start. You&apos;ll authorize
+            on Facebook — you&apos;re never asked to paste a token.
+          </p>
+          <a
+            href={'/api/meta/oauth/start'}
+            className={
+              'bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center rounded-md px-4 text-sm font-medium'
+            }
+          >
+            Connect Meta account
+          </a>
+        </div>
+
+        {sp.meta === 'connected' ? (
+          <div
+            className={
+              'mb-4 rounded-md border border-green-500/30 bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-500/10 dark:text-green-300'
+            }
+          >
+            Meta account connected. Next: pick which ad account EVA IQ should
+            manage for this client.
+          </div>
+        ) : null}
+        {sp.meta_error ? (
+          <div
+            className={
+              'mb-4 rounded-md border border-orange-500/30 bg-orange-50 px-3 py-2 text-sm text-orange-700 dark:bg-orange-500/10 dark:text-orange-300'
+            }
+          >
+            {META_ERRORS[sp.meta_error] ??
+              'Couldn’t complete the Meta connection. Please try again.'}
+          </div>
+        ) : null}
+
         {!tenants || tenants.length === 0 ? (
           <EmptyState>
             <EmptyStateHeading>No clients yet</EmptyStateHeading>

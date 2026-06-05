@@ -17,7 +17,10 @@ import {
 import { PageBody, PageHeader } from '@kit/ui/page';
 
 import pathsConfig from '~/config/paths.config';
+import { listAdAccounts } from '~/lib/server/meta/accounts';
 import { requireUserInServerComponent } from '~/lib/server/require-user-in-server-component';
+
+import { AdAccountsPanel } from './_components/ad-accounts-panel';
 
 const SAC_LABELS: Record<string, string> = {
   none: 'Standard',
@@ -74,6 +77,8 @@ export default async function ClientsPage({
       .map((c) => [c.tenant_id, c]),
   );
 
+  const adAccounts = await listAdAccounts();
+
   return (
     <>
       <PageHeader
@@ -117,6 +122,8 @@ export default async function ClientsPage({
               'Couldn’t complete the Meta connection. Please try again.'}
           </div>
         ) : null}
+
+        <AdAccountsPanel initial={adAccounts} />
 
         {!tenants || tenants.length === 0 ? (
           <EmptyState>

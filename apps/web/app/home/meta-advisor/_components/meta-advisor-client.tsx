@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import { History, Send, Sparkles, Upload } from 'lucide-react';
+import { FileText, History, Paperclip, Send, Sparkles, Upload, X } from 'lucide-react';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { Badge } from '@kit/ui/badge';
@@ -393,6 +393,9 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [input, setInput] = useState('');
+  const [attached, setAttached] = useState<{
+    data: string; mediaType: string; name: string; isImage: boolean; preview?: string;
+  } | null>(null);
   const [chatErr, setChatErr] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const started = useRef(false);
@@ -493,16 +496,44 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
     });
   }
 
+  async function onChatFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+    const data = btoa(binary);
+    const isImage = (file.type || '').startsWith('image/');
+    setAttached({
+      data,
+      mediaType: file.type || 'application/octet-stream',
+      name: file.name,
+      isImage,
+      preview: isImage ? URL.createObjectURL(file) : undefined,
+    });
+    e.target.value = '';
+  }
+
   async function onSend() {
     const text = input.trim();
-    if (!text || chatBusy) return;
+    if ((!text && !attached) || chatBusy) return;
     setInput('');
     const history = [...messages, { role: 'user' as const, content: text }];
     setMessages(history);
     setChatBusy(true);
     setChatErr(null);
     const doneTitles = (steps ?? []).filter((_, i) => done[i]).map((s) => s.title);
-    const res = await askAdvisor({ ad: adCtx, account: accountCtx, messages: history, doneSteps: doneTitles });
+    const res = await askAdvisor({
+      ad: adCtx,
+      account: accountCtx,
+      messages: history,
+      doneSteps: doneTitles,
+      attachment: attached
+        ? { data: attached.data, mediaType: attached.mediaType, name: attached.name }
+        : null,
+    });
+    setAttached(null);
     if (res.ok) setMessages([...history, { role: 'assistant', content: res.reply }]);
     else setChatErr(res.error);
     setChatBusy(false);
@@ -699,7 +730,32 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
           {chatBusy ? <p className={'text-muted-foreground text-xs'}>EVA IQ is typing…</p> : null}
           {chatErr ? <p className={'text-destructive text-sm'}>{chatErr}</p> : null}
         </div>
+        {attached ? (
+          <div className={'flex items-center gap-2 border-t px-3 py-2'}>
+            {attached.isImage && attached.preview ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={attached.preview} alt={'attachment'} className={'h-10 w-10 rounded object-cover'} />
+            ) : (
+              <FileText className={'text-muted-foreground h-5 w-5'} />
+            )}
+            <span className={'text-muted-foreground truncate text-xs'}>
+              {attached.isImage ? 'Image attached' : attached.name}
+            </span>
+            <button onClick={() => setAttached(null)} className={'text-muted-foreground hover:text-foreground ml-auto'}>
+              <X className={'h-4 w-4'} />
+            </button>
+          </div>
+        ) : null}
         <div className={'flex items-center gap-2 border-t p-3'}>
+          <label className={'text-muted-foreground hover:text-foreground cursor-pointer'} title={'Attach CSV, Excel, Word, PDF, text, or image'}>
+            <Paperclip className={'h-5 w-5'} />
+            <input
+              type={'file'}
+              accept={'.csv,.tsv,.txt,.md,.json,.xlsx,.xls,.docx,.pdf,image/*'}
+              className={'hidden'}
+              onChange={onChatFile}
+            />
+          </label>
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -712,7 +768,7 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
             }
             disabled={chatBusy}
           />
-          <Button size={'icon'} onClick={onSend} disabled={chatBusy || !input.trim()}>
+          <Button size={'icon'} onClick={onSend} disabled={chatBusy || (!input.trim() && !attached)}>
             <Send className={'h-4 w-4'} />
           </Button>
         </div>

@@ -1,6 +1,12 @@
 'use server';
 
-import { callClaude, extractJson } from '~/lib/server/ai';
+import {
+  callClaude,
+  extractJson,
+  type ClaudeContentBlock,
+  type ClaudeMessage,
+} from '~/lib/server/ai';
+import { buildAttachmentBlocks } from '~/lib/server/attachments';
 import { scalingPromptBlock } from '../../show-engine/_lib/scaling-advisor';
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
@@ -180,6 +186,7 @@ export async function askAdvisor(params: {
   account: AccountContext;
   messages: ChatMessage[];
   doneSteps?: string[];
+  attachment?: { data: string; mediaType: string; name: string } | null;
 }): Promise<AskResult> {
   let system = buildSystem(params.ad, params.account);
   if (params.doneSteps && params.doneSteps.length) {
@@ -188,11 +195,41 @@ export async function askAdvisor(params: {
       .join(', ')}. Do not tell them to redo these — build on them.`;
   }
 
+  // Route the attachment into content blocks via the SHARED helper.
+  // Unsupported types return a friendly message — never a 400 from the API.
+  let attBlocks: ClaudeContentBlock[] | null = null;
+  let attIsImage = false;
+  if (params.attachment) {
+    const routed = await buildAttachmentBlocks(params.attachment);
+    if (!routed.ok) return { ok: false, error: routed.error };
+    attBlocks = routed.blocks;
+    attIsImage = routed.isImage;
+  }
+
+  const outbound: ClaudeMessage[] = params.messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+
+  if (attBlocks && outbound.length) {
+    const last = outbound[outbound.length - 1]!;
+    const existingText = typeof last.content === 'string' ? last.content : '';
+    last.content = [
+      ...attBlocks,
+      {
+        type: 'text',
+        text:
+          existingText ||
+          (attIsImage ? 'Please analyze this screenshot.' : 'Please analyze this file.'),
+      },
+    ];
+  }
+
   const res = await callClaude({
-    feature: 'advisor_chat',
+    feature: params.attachment ? (attIsImage ? 'advisor_chat_image' : 'advisor_chat_file') : 'advisor_chat',
     maxTokens: 1024,
     system,
-    messages: params.messages.map((m) => ({ role: m.role, content: m.content })),
+    messages: outbound,
   });
 
   if (!res.ok) return { ok: false, error: res.error };

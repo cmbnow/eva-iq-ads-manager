@@ -97,9 +97,13 @@ export function ComposerClient() {
     } else setGenErr(res.error);
   }
 
-  async function onStatus(id: string, status: 'pending_approval' | 'approved' | 'published') {
+  async function onStatus(
+    id: string,
+    status: 'pending_approval' | 'approved' | 'published',
+    opts?: { override?: boolean; reason?: string },
+  ) {
     setActionErr(null);
-    const res = await setCampaignStatus(id, status);
+    const res = await setCampaignStatus(id, status, opts);
     if (res.ok) listCampaigns().then(setCampaigns).catch(() => {});
     else setActionErr(res.error);
   }
@@ -232,29 +236,101 @@ export function ComposerClient() {
           {campaigns.length === 0 ? (
             <p className={'text-muted-foreground text-sm'}>No ads yet — generate one above.</p>
           ) : (
-            campaigns.map((c) => (
-              <div key={c.id} className={'flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm'}>
-                <div>
-                  <p className={'font-medium'}>{c.name}</p>
-                  <p className={'text-muted-foreground text-xs'}>{c.objective ?? 'No objective set'}</p>
-                </div>
-                <div className={'flex items-center gap-2'}>
-                  <StatusPill label={c.status.replace('_', ' ')} tone={STATUS_TONE[c.status] ?? 'neutral'} />
-                  {c.status === 'draft' ? (
-                    <Button size={'sm'} variant={'outline'} onClick={() => onStatus(c.id, 'pending_approval')}>Submit for approval</Button>
-                  ) : null}
+            campaigns.map((c) => {
+              const run = shows.find((s) => s.id === c.profitabilityRunId);
+              return (
+                <div key={c.id} className={'rounded-md border p-3 text-sm'}>
+                  <div className={'flex flex-wrap items-center justify-between gap-2'}>
+                    <div>
+                      <p className={'font-medium'}>{c.name}</p>
+                      <p className={'text-muted-foreground text-xs'}>{c.objective ?? 'No objective set'}</p>
+                    </div>
+                    <div className={'flex items-center gap-2'}>
+                      <StatusPill label={c.status.replace('_', ' ')} tone={STATUS_TONE[c.status] ?? 'neutral'} />
+                      {c.status === 'draft' ? (
+                        <Button size={'sm'} variant={'outline'} onClick={() => onStatus(c.id, 'pending_approval')}>Submit for approval</Button>
+                      ) : null}
+                      {c.status === 'approved' ? (
+                        <Button size={'sm'} onClick={() => onStatus(c.id, 'published')}>Publish</Button>
+                      ) : null}
+                    </div>
+                  </div>
                   {c.status === 'pending_approval' ? (
-                    <Button size={'sm'} variant={'outline'} onClick={() => onStatus(c.id, 'approved')}>Approve</Button>
-                  ) : null}
-                  {c.status === 'approved' ? (
-                    <Button size={'sm'} onClick={() => onStatus(c.id, 'published')}>Publish</Button>
+                    <ReviewPanel
+                      run={run}
+                      onApprove={(opts) => onStatus(c.id, 'approved', opts)}
+                    />
                   ) : null}
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function ReviewPanel({
+  run,
+  onApprove,
+}: {
+  run: SavedShow | undefined;
+  onApprove: (opts?: { override?: boolean; reason?: string }) => void;
+}) {
+  const [override, setOverride] = useState(false);
+  const [reason, setReason] = useState('');
+
+  if (!run) {
+    return (
+      <div className={'mt-2 space-y-2 rounded-md border border-red-500/30 bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300'}>
+        <p>No profit basis — link a Show Engine run before approving.</p>
+        <Button size={'sm'} variant={'outline'} disabled>
+          Approve
+        </Button>
+      </div>
+    );
+  }
+
+  const recommended = run.result.budget_tiers[1]?.total_budget ?? 0;
+  const mrmc = run.result.mrmc ?? 0;
+  const ceiling = run.result.cpa_guardrails.ceiling;
+  const over = mrmc > 0 && recommended > mrmc;
+
+  return (
+    <div className={'mt-2 space-y-2 rounded-md border p-3 text-xs'}>
+      <p className={'font-medium'}>Profit review · {run.showName}</p>
+      <div className={'flex flex-wrap gap-x-4 gap-y-1'}>
+        <span className={over ? 'font-medium text-red-600' : 'font-medium text-green-600'}>
+          Budget {dollars0(recommended)} vs MRMC {dollars0(mrmc)}{' '}
+          {over ? '⚠ over ceiling' : '✓ within ceiling'}
+        </span>
+        <span className={'text-muted-foreground'}>Target cost/purchase ≤ {dollars0(ceiling)}</span>
+        <span className={'text-muted-foreground'}>Objective: Sales · Initiate Checkout</span>
+      </div>
+      {over ? (
+        <div className={'space-y-1'}>
+          <label className={'flex items-center gap-2'}>
+            <input type={'checkbox'} checked={override} onChange={(e) => setOverride(e.target.checked)} />
+            Approve over ceiling
+          </label>
+          {override ? (
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder={'Reason (required, logged)'}
+              className={'border-input bg-background h-7 w-full rounded border px-2'}
+            />
+          ) : null}
+        </div>
+      ) : null}
+      <Button
+        size={'sm'}
+        onClick={() => onApprove(over ? { override, reason: reason.trim() } : undefined)}
+        disabled={over && override && !reason.trim()}
+      >
+        Approve
+      </Button>
     </div>
   );
 }

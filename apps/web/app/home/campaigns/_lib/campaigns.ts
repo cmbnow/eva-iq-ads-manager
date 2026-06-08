@@ -25,6 +25,7 @@ export type CampaignRow = {
   objective: string | null;
   copy: AdDraft | Record<string, unknown>;
   budgetDaily: number | null;
+  profitabilityRunId: string | null;
   createdAt: string;
 };
 
@@ -107,6 +108,10 @@ Keep copy within Meta limits: primary text punchy (~125 chars ideal), headlines 
     draft.headlines ??= [];
     draft.descriptions ??= [];
     draft.buildSteps ??= [];
+    // A new ad set paces 0 sales/week, so the objective is fixed (the published
+    // ad set already hardcodes custom_event_type: INITIATE_CHECKOUT). Don't let
+    // the displayed/stored objective say otherwise.
+    draft.objective = 'Sales · optimize for Initiate Checkout';
     return { ok: true, draft };
   } catch {
     return { ok: false, error: 'Claude returned an unexpected format. Try again.' };
@@ -161,7 +166,7 @@ export async function listCampaigns(): Promise<CampaignRow[]> {
   const db = supabase as any;
   const { data } = await db
     .from('campaigns')
-    .select('id, name, status, objective, copy, budget_daily, created_at')
+    .select('id, name, status, objective, copy, budget_daily, profitability_run_id, created_at')
     .eq('tenant_id', tenant.id)
     .order('created_at', { ascending: false })
     .limit(50);
@@ -172,30 +177,68 @@ export async function listCampaigns(): Promise<CampaignRow[]> {
     objective: (c.objective as string) ?? null,
     copy: (c.copy as AdDraft) ?? {},
     budgetDaily: c.budget_daily != null ? Number(c.budget_daily) : null,
+    profitabilityRunId: (c.profitability_run_id as string) ?? null,
     createdAt: String(c.created_at),
   }));
 }
 
-/** Advance a campaign's status. Publishing is GATED on Meta enablement. */
+/** Advance a campaign's status. Approval is GATED on a profit basis (a linked
+ * Show Engine run) and the MRMC ceiling. Publishing has ONE path: publishCampaign. */
 export async function setCampaignStatus(
   id: string,
   status: 'pending_approval' | 'approved' | 'published',
+  opts?: { override?: boolean; reason?: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const { supabase, user, tenant } = await getTenantContext();
   if (!tenant) return { ok: false, error: 'No client found.' };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any;
 
+  // One publish path: publishCampaign sets 'published' after a real Meta publish.
   if (status === 'published') {
-    const meta = await getMetaEnablement();
-    if (!meta.enabled) {
+    return {
+      ok: false,
+      error:
+        'Use Publish to push this ad to Meta — status is set automatically after it succeeds.',
+    };
+  }
+
+  // Profit gate: no approval without a linked run, and no budget over MRMC unless
+  // explicitly overridden with a logged reason.
+  if (status === 'approved') {
+    const { data: row } = await db
+      .from('campaigns')
+      .select('profitability_run_id')
+      .eq('id', id)
+      .single();
+
+    if (!row?.profitability_run_id) {
       return {
         ok: false,
         error:
-          'Live publishing is gated: this Meta account is not API-enabled yet (advisor mode). Use the build steps to publish manually, or wait for Meta Advanced Access.',
+          'EVA IQ will not approve an ad with no profit basis. Link a Show Engine run first.',
       };
     }
-    // TODO: when enabled, call Meta Marketing API here to publish, then store external_id.
+
+    const { data: run } = await db
+      .from('show_analyses')
+      .select('result')
+      .eq('id', row.profitability_run_id)
+      .single();
+
+    const result = (run?.result ?? {}) as {
+      mrmc?: number;
+      budget_tiers?: { total_budget: number }[];
+    };
+    const mrmc = Number(result.mrmc ?? 0);
+    const recommended = Number(result.budget_tiers?.[1]?.total_budget ?? 0);
+
+    if (mrmc > 0 && recommended > mrmc && !opts?.override) {
+      return {
+        ok: false,
+        error: `This run's recommended budget ($${Math.round(recommended)}) exceeds the marginal ceiling (MRMC $${Math.round(mrmc)}). Approving spends past the point each new ad dollar earns back a full attendee's margin. Re-approve with override to proceed.`,
+      };
+    }
   }
 
   const patch: Record<string, unknown> = { status };
@@ -212,7 +255,10 @@ export async function setCampaignStatus(
     campaign_id: id,
     user_id: user?.id ?? null,
     action: `status_${status}`,
-    detail: {},
+    detail:
+      status === 'approved'
+        ? { override: opts?.override ?? false, reason: opts?.reason ?? null }
+        : {},
   });
 
   return { ok: true };

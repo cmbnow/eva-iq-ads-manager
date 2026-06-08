@@ -32,19 +32,37 @@ export type CampaignRow = {
 export async function getMetaEnablement(): Promise<{
   enabled: boolean;
   accountId: string | null;
+  pixelId: string | null;
+  sac: string;
 }> {
   const { supabase, tenant } = await getTenantContext();
-  if (!tenant) return { enabled: false, accountId: null };
-  const { data } = await supabase
-    .from('tenant_platform_connections')
-    .select('is_enabled, external_account_id')
-    .eq('tenant_id', tenant.id)
-    .eq('platform', 'meta')
-    .limit(1);
-  const c = data?.[0];
+  if (!tenant) return { enabled: false, accountId: null, pixelId: null, sac: 'none' };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any;
+  const [{ data: conn }, { data: acct }] = await Promise.all([
+    supabase
+      .from('tenant_platform_connections')
+      .select('is_enabled, external_account_id')
+      .eq('tenant_id', tenant.id)
+      .eq('platform', 'meta')
+      .limit(1),
+    db
+      .from('ad_accounts')
+      .select('meta_account_id, pixel_id, is_ads_mcp_enabled')
+      .eq('tenant_id', tenant.id)
+      .eq('is_selected', true)
+      .maybeSingle(),
+  ]);
+  const c = conn?.[0];
+  // The publish gate is the SELECTED ad account's is_ads_mcp_enabled; fall back to
+  // the connection's is_enabled (selectAdAccount keeps them in sync).
+  const enabled = Boolean(acct?.is_ads_mcp_enabled ?? c?.is_enabled);
   return {
-    enabled: Boolean(c?.is_enabled),
-    accountId: (c?.external_account_id as string) ?? null,
+    enabled,
+    accountId:
+      (acct?.meta_account_id as string) ?? (c?.external_account_id as string) ?? null,
+    pixelId: (acct?.pixel_id as string) ?? null,
+    sac: tenant.special_ad_category ?? 'none',
   };
 }
 
@@ -95,7 +113,10 @@ Keep copy within Meta limits: primary text punchy (~125 chars ideal), headlines 
   }
 }
 
-export async function saveDraft(draft: AdDraft): Promise<{ id: string } | { error: string }> {
+export async function saveDraft(
+  draft: AdDraft,
+  opts?: { profitabilityRunId?: string | null; budgetDaily?: number | null },
+): Promise<{ id: string } | { error: string }> {
   const { supabase, user, tenant } = await getTenantContext();
   if (!tenant) return { error: 'No client found.' };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -112,6 +133,9 @@ export async function saveDraft(draft: AdDraft): Promise<{ id: string } | { erro
       copy: draft,
       build_steps: draft.buildSteps ?? [],
       special_ad_category: tenant.special_ad_category ?? 'none',
+      // Linked profitability run + its MRMC-gated daily budget (drives publish).
+      profitability_run_id: opts?.profitabilityRunId ?? null,
+      budget_daily: opts?.budgetDaily ?? null,
       created_by: user?.id ?? null,
     })
     .select('id')

@@ -88,6 +88,14 @@ export interface AnalysisResult {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Forward PLANNING assumption for F&B gross-margin contribution per attendee.
+ * Used only for budgeting a show BEFORE it happens. Post-event measurement must
+ * use ACTUAL F&B from real sales — never substitute this assumption into a
+ * profit verdict. Assumption for planning, actuals for measuring.
+ */
+export const DEFAULT_FB_PER_HEAD = 32;
 const artistShare = (i: ShowInputs) =>
   i.backend_artist_share ??
   (i.backend_promoter_share != null ? 1 - i.backend_promoter_share : 0.2);
@@ -137,7 +145,7 @@ export function tierTMVs(
 }
 
 export function calculateTMV(i: ShowInputs): number {
-  const fb = i.f_and_b_contribution_per_head ?? 12;
+  const fb = i.f_and_b_contribution_per_head ?? DEFAULT_FB_PER_HEAD;
   switch (i.offer_structure) {
     case 'straight_guarantee':
       return i.avg_ticket_price;
@@ -187,7 +195,7 @@ function modelScenario(
   i: ShowInputs,
   marketingBudget: number,
 ): ScenarioResult {
-  const fb = i.f_and_b_contribution_per_head ?? 12;
+  const fb = i.f_and_b_contribution_per_head ?? DEFAULT_FB_PER_HEAD;
   const netFee = i.net_fee_per_head ?? 0;
   const ticket_revenue = attendance * i.avg_ticket_price;
   const f_and_b_contribution = attendance * fb;
@@ -212,7 +220,7 @@ function modelScenario(
 
 function detectRiskFlags(i: ShowInputs, tmv: number, tmav: number): string[] {
   const flags: string[] = [];
-  const fb = i.f_and_b_contribution_per_head ?? 12;
+  const fb = i.f_and_b_contribution_per_head ?? DEFAULT_FB_PER_HEAD;
 
   if (i.offer_structure === 'bonus_escalator') {
     for (const { tier, tier_TMV } of tierTMVs(i)) {
@@ -257,7 +265,7 @@ function calculateDealScore(
   target: ScenarioResult,
   sellout: ScenarioResult,
 ): 'A' | 'B' | 'C' | 'D' {
-  const fb = i.f_and_b_contribution_per_head ?? 12;
+  const fb = i.f_and_b_contribution_per_head ?? DEFAULT_FB_PER_HEAD;
   const fbDependent = tmv < fb;
   const bonusCliff = flags.some((f) => f.startsWith('Bonus cliff'));
   const profitConservative = conservative.net_profit >= 0;
@@ -302,7 +310,7 @@ function buildExecutiveRecommendation(
 }
 
 export function analyzeShow(inputs: ShowInputs): AnalysisResult {
-  const fb = inputs.f_and_b_contribution_per_head ?? 12;
+  const fb = inputs.f_and_b_contribution_per_head ?? DEFAULT_FB_PER_HEAD;
   const netFee = inputs.net_fee_per_head ?? 0;
   const tmv = calculateTMV(inputs);
   const tmav = tmv + fb + netFee; // booking fee adds to TMAV, parallel to F&B

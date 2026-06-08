@@ -17,8 +17,12 @@ import {
 
 export type ShowEconomics = {
   showName: string;
-  tmav: number; // CPA ceiling (1.0×)
-  cpaLate: number; // 0.9× guardrail
+  // F&B-INDEPENDENT per-attendee value = ticket marginal value + net booking fee.
+  // (We deliberately do NOT carry the show's planning F&B here.)
+  ticketPlusFeePerHead: number;
+  // ACTUAL F&B per head from real sales. null = unknown → F&B is EXCLUDED from the
+  // verdict. The $32 forward-planning assumption is NEVER substituted here.
+  actualFbPerHead: number | null;
 };
 
 export type AudienceType = 'retargeting' | 'lookalike' | 'cold';
@@ -48,6 +52,8 @@ export type PostEventReport = {
     spend: number;
     affordable: number | null;
     gap: number | null; // affordable − spend (positive = headroom)
+    fbBasis: 'actual' | 'excluded' | null; // how F&B entered the verdict
+    fbNote: string | null;
   };
   summary: {
     spend: number;
@@ -77,7 +83,7 @@ function classifyAudience(name: string): AudienceType {
 
 function rollupAdSets(
   ads: AdAnalysis[],
-  econ: ShowEconomics | null,
+  ceiling: number | null, // affordable cost-per-sale (ticket+fee+actual F&B)
 ): AdSetRollup[] {
   const groups = new Map<string, AdAnalysis[]>();
   for (const a of ads) {
@@ -128,7 +134,7 @@ function rollupAdSets(
       weeklyPurchases: lead.adSetWeeklyPurchases,
       freqFlag,
       belowGuardrail:
-        econ != null && costPerPurchase != null && costPerPurchase > econ.tmav,
+        ceiling != null && costPerPurchase != null && costPerPurchase > ceiling,
     });
   }
 
@@ -142,12 +148,18 @@ export function buildPostEventReport(
   econ: ShowEconomics | null,
 ): PostEventReport {
   const s = analysis.summary;
-  const adSets = rollupAdSets(analysis.ads, econ);
+  // Affordable cost-per-sale uses ACTUAL F&B only. If actual F&B is unknown, F&B
+  // is excluded (ceiling = ticket margin + booking fee). The $32 planning
+  // assumption never enters here.
+  const ceiling = econ
+    ? econ.ticketPlusFeePerHead + (econ.actualFbPerHead ?? 0)
+    : null;
+  const adSets = rollupAdSets(analysis.ads, ceiling);
 
   // ---- 1. Headline verdict (profit-first) ----
   let verdict: PostEventReport['verdict'];
-  if (econ && s.totalPurchases > 0) {
-    const affordable = econ.tmav * s.totalPurchases;
+  if (econ && ceiling != null && s.totalPurchases > 0) {
+    const affordable = ceiling * s.totalPurchases;
     const gap = affordable - s.totalSpend;
     const level: 'profitable' | 'borderline' | 'over' =
       s.totalSpend <= 0.9 * affordable
@@ -155,13 +167,35 @@ export function buildPostEventReport(
         : s.totalSpend <= affordable
           ? 'borderline'
           : 'over';
-    const head =
+    const fbBasis: 'actual' | 'excluded' =
+      econ.actualFbPerHead != null ? 'actual' : 'excluded';
+    const fbNote =
+      fbBasis === 'actual'
+        ? `Profit verdict uses your ACTUAL F&B of ${money2(econ.actualFbPerHead!)} per head.`
+        : `F&B is EXCLUDED from this verdict (ticket margin + booking fee only). Enter the show's ACTUAL F&B per head from sales to include it — the forward-planning assumption is never substituted here.`;
+    const lead =
       level === 'profitable'
-        ? `This show's ads were PROFITABLE — ${money(s.totalSpend)} spent against ${money(affordable)} affordable (TMAV ${money(econ.tmav)} × ${s.totalPurchases} sales). ${money(gap)} to spare.`
+        ? 'This show’s ads were PROFITABLE'
         : level === 'borderline'
-          ? `Borderline — ${money(s.totalSpend)} spent against ${money(affordable)} affordable; only ${money(gap)} of headroom.`
-          : `OVER BUDGET — ${money(s.totalSpend)} spent vs ${money(affordable)} affordable; ${money(Math.abs(gap))} past what the show could bear.`;
-    verdict = { basis: 'profit', level, headline: head, spend: s.totalSpend, affordable, gap };
+          ? 'Borderline'
+          : 'OVER BUDGET';
+    const tail =
+      level === 'over'
+        ? `${money(Math.abs(gap))} past what the show could bear.`
+        : level === 'profitable'
+          ? `${money(gap)} to spare.`
+          : `only ${money(gap)} of headroom.`;
+    const head = `${lead} — ${money(s.totalSpend)} spent vs ${money(affordable)} affordable (${money2(ceiling)}/sale × ${s.totalPurchases} sales); ${tail}`;
+    verdict = {
+      basis: 'profit',
+      level,
+      headline: head,
+      spend: s.totalSpend,
+      affordable,
+      gap,
+      fbBasis,
+      fbNote,
+    };
   } else {
     verdict = {
       basis: 'roas',
@@ -170,6 +204,8 @@ export function buildPostEventReport(
       spend: s.totalSpend,
       affordable: null,
       gap: null,
+      fbBasis: null,
+      fbNote: null,
     };
   }
 
@@ -237,9 +273,9 @@ export function buildPostEventReport(
     );
   }
   // Profit cap if over budget.
-  if (verdict.level === 'over' && verdict.affordable != null) {
+  if (verdict.level === 'over' && verdict.affordable != null && ceiling != null) {
     recommendations.push(
-      `Total spend exceeded what the show could afford — set a hard cap near ${money(verdict.affordable)} next time and pause once cost/sale crosses ${money(econ!.tmav)}.`,
+      `Total spend exceeded what the show could afford — set a hard cap near ${money(verdict.affordable)} next time and pause once cost/sale crosses ${money2(ceiling)}.`,
     );
   }
   // Always give at least a couple of bullets.
@@ -279,6 +315,7 @@ export function reportToText(r: PostEventReport): string {
   L.push(r.summary.periodLabel);
   L.push('');
   L.push('VERDICT: ' + r.verdict.headline);
+  if (r.verdict.fbNote) L.push('(' + r.verdict.fbNote + ')');
   L.push('');
   L.push(
     `Summary: ${money(r.summary.spend)} spend · ${r.summary.purchases} sales · ${r.summary.roas.toFixed(1)}x ROAS · ${r.summary.costPerPurchase !== null ? money2(r.summary.costPerPurchase) : '—'}/sale · ${money(r.summary.revenue)} revenue`,

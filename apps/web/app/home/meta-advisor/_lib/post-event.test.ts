@@ -60,16 +60,35 @@ describe('post-event report — Foundry May 25–Jun 7', () => {
     expect(r.verdict.affordable).toBeNull();
   });
 
-  it('with economics: profit verdict = TMAV × purchases vs spend', () => {
-    const econ: ShowEconomics = { showName: 'Test', tmav: 40, cpaLate: 36 };
+  it('with economics, no actual F&B: F&B EXCLUDED, planning assumption never used', () => {
+    // ticket margin + booking fee = $40/head; actual F&B unknown.
+    const econ: ShowEconomics = {
+      showName: 'Test',
+      ticketPlusFeePerHead: 40,
+      actualFbPerHead: null,
+    };
     const r = buildPostEventReport(analysis, econ);
-    // 143 total purchases × $40 TMAV = $5,720 affordable; ~$535 spent.
     expect(r.summary.purchases).toBe(143);
     expect(r.verdict.basis).toBe('profit');
+    expect(r.verdict.fbBasis).toBe('excluded');
+    // affordable = 40 × 143 = 5,720 — NO F&B (and definitely not +$32 assumption).
     expect(r.verdict.affordable).toBeCloseTo(5720, 0);
     expect(r.verdict.level).toBe('profitable');
-    expect(r.verdict.gap!).toBeGreaterThan(5000);
-    expect(r.verdict.headline).toMatch(/PROFITABLE/);
+    expect(r.verdict.fbNote).toMatch(/EXCLUDED/);
+  });
+
+  it('with ACTUAL F&B: it is added to the ceiling (assumption still never used)', () => {
+    const econ: ShowEconomics = {
+      showName: 'Test',
+      ticketPlusFeePerHead: 40,
+      actualFbPerHead: 10, // real F&B from sales
+    };
+    const r = buildPostEventReport(analysis, econ);
+    // ceiling = 40 + 10 = 50; affordable = 50 × 143 = 7,150. If the $32 planning
+    // assumption had leaked in, ceiling would be 72/82 — it must not.
+    expect(r.verdict.fbBasis).toBe('actual');
+    expect(r.verdict.affordable).toBeCloseTo(7150, 0);
+    expect(r.verdict.fbNote).toMatch(/ACTUAL/);
   });
 
   it('produces 3–5 concrete next-show recommendations', () => {

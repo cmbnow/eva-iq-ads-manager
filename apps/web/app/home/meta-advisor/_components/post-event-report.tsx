@@ -23,6 +23,7 @@ const money2 = (n: number) =>
 export function PostEventReport({ analysis }: { analysis: AnalysisResult }) {
   const [shows, setShows] = useState<SavedShow[]>([]);
   const [showId, setShowId] = useState('');
+  const [actualFb, setActualFb] = useState(''); // ACTUAL F&B/head from sales
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -34,12 +35,14 @@ export function PostEventReport({ analysis }: { analysis: AnalysisResult }) {
   const econ: ShowEconomics | null = useMemo(() => {
     const s = shows.find((x) => x.id === showId);
     if (!s) return null;
+    // F&B-INDEPENDENT base = ticket marginal value + net booking fee. We do NOT
+    // pull the show's planning F&B (the $32 assumption) into the verdict.
     return {
       showName: s.showName,
-      tmav: s.result.tmav,
-      cpaLate: s.result.cpa_guardrails.late,
+      ticketPlusFeePerHead: s.result.tmv + (s.result.net_fee_per_head ?? 0),
+      actualFbPerHead: actualFb.trim() === '' ? null : Number(actualFb),
     };
-  }, [shows, showId]);
+  }, [shows, showId, actualFb]);
 
   const report = useMemo(
     () => buildPostEventReport(analysis, econ),
@@ -84,6 +87,18 @@ export function PostEventReport({ analysis }: { analysis: AnalysisResult }) {
                 </option>
               ))}
             </select>
+            {showId ? (
+              <span className={'flex items-center gap-1'} title={'Actual F&B revenue per head from POS/sales. Leave blank to exclude F&B — the planning assumption is never used here.'}>
+                · actual F&amp;B/head $
+                <input
+                  type={'number'}
+                  value={actualFb}
+                  onChange={(e) => setActualFb(e.target.value)}
+                  placeholder={'from sales'}
+                  className={'border-input bg-background h-7 w-24 rounded border px-2'}
+                />
+              </span>
+            ) : null}
             <Button variant={'outline'} size={'sm'} onClick={copy}>
               <Copy className={'mr-1 h-3.5 w-3.5'} /> {copied ? 'Copied' : 'Copy'}
             </Button>
@@ -105,6 +120,9 @@ export function PostEventReport({ analysis }: { analysis: AnalysisResult }) {
         <div className={`rounded-md border px-3 py-2 text-sm font-medium ${verdictTone}`}>
           {report.verdict.headline}
         </div>
+        {report.verdict.fbNote ? (
+          <p className={'text-muted-foreground -mt-3 text-xs'}>{report.verdict.fbNote}</p>
+        ) : null}
 
         {/* 2. Blended summary */}
         <div className={'grid grid-cols-2 gap-3 text-sm sm:grid-cols-5'}>

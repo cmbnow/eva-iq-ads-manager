@@ -75,7 +75,7 @@ const DEFAULTS: FormState = {
   sellout_attendance: '1000',
   baseline_attendance: '',
   days_remaining: '45',
-  f_and_b_contribution_per_head: '12',
+  f_and_b_contribution_per_head: '32', // PLANNING assumption (DEFAULT_FB_PER_HEAD)
   historical_cpa: '',
 };
 
@@ -141,7 +141,7 @@ export function OfferEngineClient() {
       sellout_attendance: Number(f.sellout_attendance),
       baseline_attendance: num(f.baseline_attendance),
       days_remaining: Number(f.days_remaining),
-      f_and_b_contribution_per_head: num(f.f_and_b_contribution_per_head, 12),
+      f_and_b_contribution_per_head: num(f.f_and_b_contribution_per_head, 32),
       historical_cpa: num(f.historical_cpa),
     };
   }
@@ -231,7 +231,7 @@ export function OfferEngineClient() {
       sellout_attendance: String(i.sellout_attendance ?? ''),
       baseline_attendance: i.baseline_attendance != null ? String(i.baseline_attendance) : '',
       days_remaining: String(i.days_remaining ?? ''),
-      f_and_b_contribution_per_head: String(i.f_and_b_contribution_per_head ?? 12),
+      f_and_b_contribution_per_head: String(i.f_and_b_contribution_per_head ?? 32),
       historical_cpa: i.historical_cpa != null ? String(i.historical_cpa) : '',
     });
     if (i.bonus_tiers) setTiers(i.bonus_tiers);

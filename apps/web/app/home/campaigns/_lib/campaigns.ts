@@ -2,6 +2,8 @@
 
 import { callClaude, extractJson, getTenantContext } from '~/lib/server/ai';
 
+import { evaluateApproval } from './approval';
+
 export type AdDraft = {
   name: string;
   objective: string;
@@ -212,33 +214,32 @@ export async function setCampaignStatus(
       .eq('id', id)
       .single();
 
-    if (!row?.profitability_run_id) {
-      return {
-        ok: false,
-        error:
-          'EVA IQ will not approve an ad with no profit basis. Link a Show Engine run first.',
+    // Only query the run when one is linked (don't hit show_analyses with a null
+    // id). The no-run case is handled by evaluateApproval below.
+    let mrmc = 0;
+    let recommended = 0;
+    if (row?.profitability_run_id) {
+      const { data: run } = await db
+        .from('show_analyses')
+        .select('result')
+        .eq('id', row.profitability_run_id)
+        .single();
+
+      const result = (run?.result ?? {}) as {
+        mrmc?: number;
+        budget_tiers?: { total_budget: number }[];
       };
+      mrmc = Number(result.mrmc ?? 0);
+      recommended = Number(result.budget_tiers?.[1]?.total_budget ?? 0);
     }
 
-    const { data: run } = await db
-      .from('show_analyses')
-      .select('result')
-      .eq('id', row.profitability_run_id)
-      .single();
-
-    const result = (run?.result ?? {}) as {
-      mrmc?: number;
-      budget_tiers?: { total_budget: number }[];
-    };
-    const mrmc = Number(result.mrmc ?? 0);
-    const recommended = Number(result.budget_tiers?.[1]?.total_budget ?? 0);
-
-    if (mrmc > 0 && recommended > mrmc && !opts?.override) {
-      return {
-        ok: false,
-        error: `This run's recommended budget ($${Math.round(recommended)}) exceeds the marginal ceiling (MRMC $${Math.round(mrmc)}). Approving spends past the point each new ad dollar earns back a full attendee's margin. Re-approve with override to proceed.`,
-      };
-    }
+    const decision = evaluateApproval({
+      profitabilityRunId: row?.profitability_run_id ?? null,
+      mrmc,
+      recommendedBudget: recommended,
+      override: opts?.override,
+    });
+    if (!decision.ok) return { ok: false, error: decision.error };
   }
 
   const patch: Record<string, unknown> = { status };

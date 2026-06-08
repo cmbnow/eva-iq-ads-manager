@@ -25,7 +25,9 @@ const config = {
       fullUrl: true,
     },
   },
-  serverExternalPackages: [],
+  // xlsx (SheetJS) + mammoth parse uploaded Excel/Word server-side; keep them
+  // external so Next doesn't try to bundle their Node-specific internals.
+  serverExternalPackages: ['xlsx', 'mammoth'],
   // needed for supporting dynamic imports for local content
   outputFileTracingIncludes: {
     '/*': ['./content/**/*'],
@@ -33,10 +35,11 @@ const config = {
   experimental: {
     mdxRs: true,
     reactCompiler: ENABLE_REACT_COMPILER,
-    // Allow PDF offer sheets / screenshots to be sent to server actions
-    // (default is 1mb; base64 inflates files ~33%). Stays under Vercel's cap.
+    // Allow PDF offer sheets / screenshots / chat uploads to be sent to server
+    // actions (default is 1mb; base64 inflates files ~33%, and we cap uploads at
+    // 5MB → ~6.7MB encoded). Stays under Vercel's cap.
     serverActions: {
-      bodySizeLimit: '4mb',
+      bodySizeLimit: '8mb',
     },
     turbo: {
       resolveExtensions: ['.ts', '.tsx', '.js', '.jsx'],

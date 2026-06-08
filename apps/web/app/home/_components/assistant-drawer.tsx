@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import { ImageIcon, Send, Sparkles, X } from 'lucide-react';
+import { FileText, Paperclip, Send, Sparkles, X } from 'lucide-react';
 
 import { Button } from '@kit/ui/button';
 import { cn } from '@kit/ui/utils';
@@ -15,7 +15,13 @@ import {
 } from '../chat/_lib/conversations';
 
 type Msg = { role: 'user' | 'assistant'; content: string; hasImage?: boolean };
-type Attached = { data: string; mediaType: string; preview: string };
+type Attached = {
+  data: string;
+  mediaType: string;
+  name: string;
+  isImage: boolean;
+  preview?: string;
+};
 
 export function AssistantDrawer() {
   const [open, setOpen] = useState(false);
@@ -46,13 +52,21 @@ export function AssistantDrawer() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, busy, open]);
 
-  async function onImage(e: React.ChangeEvent<HTMLInputElement>) {
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     const buf = new Uint8Array(await file.arrayBuffer());
     let bin = '';
     for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]!);
-    setImage({ data: btoa(bin), mediaType: file.type || 'image/png', preview: URL.createObjectURL(file) });
+    const isImage = (file.type || '').startsWith('image/');
+    setImage({
+      data: btoa(bin),
+      mediaType: file.type || 'application/octet-stream',
+      name: file.name,
+      isImage,
+      preview: isImage ? URL.createObjectURL(file) : undefined,
+    });
+    e.target.value = '';
   }
 
   async function onSend() {
@@ -70,7 +84,7 @@ export function AssistantDrawer() {
     const img = image;
     setImage(null);
     setBusy(true);
-    const res = await sendMessage({ conversationId: id, text, image: img ? { data: img.data, mediaType: img.mediaType } : null });
+    const res = await sendMessage({ conversationId: id, text, attachment: img ? { data: img.data, mediaType: img.mediaType, name: img.name } : null });
     if (res.ok) setMessages((p) => [...p, { role: 'assistant', content: res.reply }]);
     else setMessages((p) => [...p, { role: 'assistant', content: `⚠️ ${res.error}` }]);
     setBusy(false);
@@ -108,7 +122,7 @@ export function AssistantDrawer() {
         <div ref={scrollRef} className={'flex-1 space-y-3 overflow-y-auto p-3'}>
           {messages.length === 0 ? (
             <p className={'text-muted-foreground text-sm'}>
-              Ask EVA IQ anything — about this client, an ad, or drop a screenshot of your Ads Manager and ask “what should I change?”
+              Ask EVA IQ anything — about this client, an ad, or drop a CSV export / screenshot of your Ads Manager and ask “what should I change?”
             </p>
           ) : null}
           {messages.map((m, i) => (
@@ -128,9 +142,15 @@ export function AssistantDrawer() {
 
         {image ? (
           <div className={'flex items-center gap-2 border-t px-3 py-2'}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={image.preview} alt={''} className={'h-8 w-8 rounded object-cover'} />
-            <span className={'text-muted-foreground text-xs'}>Screenshot attached</span>
+            {image.isImage && image.preview ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={image.preview} alt={''} className={'h-8 w-8 rounded object-cover'} />
+            ) : (
+              <FileText className={'text-muted-foreground h-5 w-5'} />
+            )}
+            <span className={'text-muted-foreground truncate text-xs'}>
+              {image.isImage ? 'Image attached' : image.name}
+            </span>
             <button onClick={() => setImage(null)} className={'text-muted-foreground ml-auto'}>
               <X className={'h-4 w-4'} />
             </button>
@@ -138,9 +158,14 @@ export function AssistantDrawer() {
         ) : null}
 
         <div className={'flex items-center gap-2 border-t p-3'}>
-          <label className={'text-muted-foreground hover:text-foreground cursor-pointer'}>
-            <ImageIcon className={'h-5 w-5'} />
-            <input type={'file'} accept={'image/*'} className={'hidden'} onChange={onImage} />
+          <label className={'text-muted-foreground hover:text-foreground cursor-pointer'} title={'Attach CSV, Excel, Word, PDF, text, or image'}>
+            <Paperclip className={'h-5 w-5'} />
+            <input
+              type={'file'}
+              accept={'.csv,.tsv,.txt,.md,.json,.xlsx,.xls,.docx,.pdf,image/*'}
+              className={'hidden'}
+              onChange={onFile}
+            />
           </label>
           <input
             value={input}

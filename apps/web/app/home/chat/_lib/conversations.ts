@@ -6,6 +6,7 @@ import {
   callClaude,
   getTenantContext,
 } from '~/lib/server/ai';
+import { buildAttachmentBlocks } from '~/lib/server/attachments';
 
 export type ConversationMeta = {
   id: string;
@@ -80,22 +81,33 @@ export type SendResult =
 export async function sendMessage(params: {
   conversationId: string;
   text: string;
-  image?: { data: string; mediaType: string } | null;
+  attachment?: { data: string; mediaType: string; name: string } | null;
 }): Promise<SendResult> {
   const { supabase, user, tenant } = await getTenantContext();
   if (!tenant) return { ok: false, error: 'No client found.' };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any;
 
-  // Optionally store the screenshot in tenant-scoped storage.
+  // Route the attachment (CSV/text/Excel/Word/PDF/image) into content blocks.
+  // Unsupported types return a friendly message — never a 400 from the API.
+  let attBlocks: ClaudeContentBlock[] | null = null;
+  let attIsImage = false;
+  if (params.attachment) {
+    const routed = await buildAttachmentBlocks(params.attachment);
+    if (!routed.ok) return { ok: false, error: routed.error };
+    attBlocks = routed.blocks;
+    attIsImage = routed.isImage;
+  }
+
+  // Only images go to tenant-scoped image storage (documents are parsed to text).
   const imageRefs: string[] = [];
-  if (params.image) {
+  if (params.attachment && attIsImage) {
     try {
       const path = `${tenant.id}/${crypto.randomUUID()}`;
-      const bytes = Buffer.from(params.image.data, 'base64');
+      const bytes = Buffer.from(params.attachment.data, 'base64');
       const { error } = await supabase.storage
         .from('advisor-images')
-        .upload(path, bytes, { contentType: params.image.mediaType });
+        .upload(path, bytes, { contentType: params.attachment.mediaType });
       if (!error) imageRefs.push(path);
     } catch {
       /* best-effort */
@@ -123,27 +135,24 @@ export async function sendMessage(params: {
     .filter((m) => m.role === 'user' || m.role === 'assistant')
     .map((m) => ({ role: m.role as 'user' | 'assistant', content: String(m.content) }));
 
-  // Attach the image to the latest user turn (the one we just added).
-  if (params.image && priorMessages.length) {
+  // Attach the routed blocks to the latest user turn (the one we just added).
+  if (attBlocks && priorMessages.length) {
     const last = priorMessages[priorMessages.length - 1]!;
-    const blocks: ClaudeContentBlock[] = [
+    last.content = [
+      ...attBlocks,
       {
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: params.image.mediaType,
-          data: params.image.data,
-        },
+        type: 'text',
+        text:
+          params.text ||
+          (attIsImage ? 'Please analyze this screenshot.' : 'Please analyze this file.'),
       },
-      { type: 'text', text: params.text || 'Please analyze this screenshot.' },
     ];
-    last.content = blocks;
   }
 
-  const system = `You are EVA IQ, a Meta ads advisor for "${tenant.name}". The owner is NOT technical — be warm, plain-spoken, concise, and concrete. Use first-party-audience strategy only. When the user shares a screenshot of Meta Ads Manager, read it and explain what you see and what to change. Apply the account's rules: scale budgets gradually (never >~30–40% per step), give exact dollar figures, and only recommend switching an ad set from Initiate Checkout to Purchase if that ad set individually paces ~50+ purchases per 7-day window.`;
+  const system = `You are EVA IQ, a Meta ads advisor for "${tenant.name}". The owner is NOT technical — be warm, plain-spoken, concise, and concrete. Use first-party-audience strategy only. When the user shares a screenshot, a CSV/Excel export, or a Word/PDF document, read it and explain what the numbers mean and what to change. Apply the account's rules: scale budgets gradually (never >~30–40% per step), give exact dollar figures, and only recommend switching an ad set from Initiate Checkout to Purchase if that ad set individually paces ~50+ purchases per 7-day window.`;
 
   const res = await callClaude({
-    feature: params.image ? 'chat_image' : 'chat',
+    feature: params.attachment ? (attIsImage ? 'chat_image' : 'chat_file') : 'chat',
     maxTokens: 1200,
     system,
     messages: priorMessages,
@@ -164,7 +173,12 @@ export async function sendMessage(params: {
 
   // Title the conversation from the first user message; bump updated_at.
   const title =
-    params.text.trim().slice(0, 48) || 'Screenshot analysis';
+    params.text.trim().slice(0, 48) ||
+    (params.attachment
+      ? attIsImage
+        ? 'Screenshot analysis'
+        : `File: ${params.attachment.name}`.slice(0, 48)
+      : 'New conversation');
   await db
     .from('conversations')
     .update({ updated_at: new Date().toISOString() })

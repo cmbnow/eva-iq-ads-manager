@@ -50,6 +50,7 @@ export type AdAnalysis = {
   impressions: number;
   cpm: number;
   qualityRanking: string;
+  delivery: string; // "Ad delivery" column: active / not_delivering / etc.
   endsDate: string; // event/ad end date from the "Ends" column
   daysUntilEnd: number | null; // days from today until it ends
   adSetWeeklyPurchases: number; // this ad set's purchases per 7-day window
@@ -178,6 +179,7 @@ export function analyzeMetaCsv(text: string): AnalysisResult {
     results: headerIndex(headers, 'results'),
     resultIndicator: headerIndex(headers, 'result indicator'),
     quality: headerIndex(headers, 'quality ranking'),
+    delivery: headerIndex(headers, 'ad delivery'),
     start: headerIndex(headers, 'reporting starts'),
     end: headerIndex(headers, 'reporting ends'),
     ends: exactHeaderIndex(headers, 'ends'), // event/ad end date column
@@ -333,6 +335,7 @@ export function analyzeMetaCsv(text: string): AnalysisResult {
       impressions: num(get(col.impressions)),
       cpm: num(get(col.cpm)),
       qualityRanking: quality,
+      delivery: get(col.delivery) || 'unknown',
       endsDate,
       daysUntilEnd,
       adSetWeeklyPurchases: 0,

@@ -28,6 +28,7 @@ import {
 import { ACCENT_2, MetricTile, PerfChart } from '../../_components/dashboard-ui';
 import { type SavedShow, listAnalyses } from '../../show-engine/_lib/offer-actions';
 import { decideScaling } from '../../show-engine/_lib/scaling-advisor';
+import { PostEventReport } from './post-event-report';
 
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -94,6 +95,7 @@ export function MetaAdvisorClient() {
   const [history, setHistory] = useState<SnapshotMeta[]>([]);
   const [saving, setSaving] = useState(false);
   const [viewingSaved, setViewingSaved] = useState(false);
+  const [showReport, setShowReport] = useState(false);
 
   // On open: load history AND auto-open the most recent report so the page is
   // never blank — you land on graphs, ad list, and trends immediately.
@@ -218,6 +220,13 @@ export function MetaAdvisorClient() {
           ) : saving ? (
             <p className={'text-muted-foreground text-sm'}>Saving & comparing to your last upload…</p>
           ) : null}
+
+          <div className={'flex justify-end'}>
+            <Button variant={'outline'} size={'sm'} onClick={() => setShowReport((v) => !v)}>
+              {showReport ? 'Hide post-event report' : '📊 Post-event report'}
+            </Button>
+          </div>
+          {showReport ? <PostEventReport analysis={result} /> : null}
 
           <div className={'grid gap-4 lg:grid-cols-3'}>
             <div className={'min-w-0 space-y-2 lg:col-span-1'}>

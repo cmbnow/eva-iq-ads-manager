@@ -9,6 +9,8 @@ import { createI18nServerInstance } from '~/lib/i18n/i18n.server';
 import { withI18n } from '~/lib/i18n/with-i18n';
 import { requireUserInServerComponent } from '~/lib/server/require-user-in-server-component';
 
+import { TicketTailorCard } from './_components/ticket-tailor-card';
+
 const callbackPath = pathsConfig.auth.callback;
 
 const features = {
@@ -41,6 +43,7 @@ function PersonalAccountSettingsPage() {
           paths={paths}
           features={features}
         />
+        <TicketTailorCard />
       </div>
     </PageBody>
   );

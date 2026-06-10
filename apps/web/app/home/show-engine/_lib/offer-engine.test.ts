@@ -13,6 +13,47 @@ import {
  * A fresh run with no F&B override must budget off $17.75, not the old sales-
  * shaped $32. It enters TMAV straight as a per-attendee margin dollar amount.
  */
+/*
+ * Opening cost is a per-show FIXED cost (doors/staff/sound/light). It is NOT
+ * marginal, so it must stay entirely out of TMAV, the CPA guardrails, and the
+ * budget tiers — it only rides through on the result for breakeven/P&L later.
+ */
+describe('Opening cost — stored, but out of the marginal math', () => {
+  const base: ShowInputs = {
+    venue_capacity: 1000,
+    avg_ticket_price: 25,
+    offer_structure: 'straight_guarantee',
+    guarantee: 5000,
+    fixed_show_expenses: 1000,
+    conservative_attendance: 400,
+    target_attendance: 700,
+    sellout_attendance: 1000,
+    days_remaining: 45,
+    f_and_b_contribution_per_head: 12,
+  };
+
+  it('opening cost 0 vs 1806 gives identical TMAV, guardrails, and tiers', () => {
+    const a = analyzeShow({ ...base, opening_cost: 0 });
+    const b = analyzeShow({ ...base, opening_cost: 1806 });
+
+    expect(b.tmav).toBe(a.tmav);
+    expect(b.mrmc).toBe(a.mrmc);
+    expect(b.cpa_guardrails).toEqual(a.cpa_guardrails);
+    expect(b.budget_tiers).toEqual(a.budget_tiers);
+    // The only difference is the echoed pass-through value.
+    expect(a.opening_cost).toBe(0);
+    expect(b.opening_cost).toBe(1806);
+  });
+
+  it('defaults opening_cost to 0 when unset and is independent of fixed_show_expenses', () => {
+    const r = analyzeShow(base); // no opening_cost
+    expect(r.opening_cost).toBe(0);
+    // Changing fixed_show_expenses must not invent an opening_cost.
+    const r2 = analyzeShow({ ...base, fixed_show_expenses: 9999 });
+    expect(r2.opening_cost).toBe(0);
+  });
+});
+
 describe('F&B planning default — sourced $17.75 margin/head', () => {
   it('DEFAULT_FB_PER_HEAD is 17.75', () => {
     expect(DEFAULT_FB_PER_HEAD).toBe(17.75);

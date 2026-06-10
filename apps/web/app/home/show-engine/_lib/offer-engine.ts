@@ -24,6 +24,10 @@ export interface ShowInputs {
   backend_promoter_share?: number; // e.g. 0.80
   backend_artist_share?: number; // e.g. 0.20
   fixed_show_expenses: number;
+  // Per-show FIXED cost to open the doors: FOH/BOH wages, bar + door staff,
+  // sound, light. SEPARATE from fixed_show_expenses (the gig/artist-deal cost).
+  // Fixed, not marginal — does NOT enter TMAV. Used for breakeven + P&L only.
+  opening_cost?: number;
   bonus_tiers?: BonusTier[];
   conservative_attendance: number;
   target_attendance: number;
@@ -67,6 +71,7 @@ export interface AnalysisResult {
   tmav: number;
   fb_per_head: number;
   net_fee_per_head: number;
+  opening_cost: number; // pass-through of the per-show fixed open cost (0 if unset)
   cpa_guardrails: { early: number; mid: number; late: number; ceiling: number };
   incremental_attendees: number;
   mrmc: number;
@@ -377,6 +382,8 @@ export function analyzeShow(inputs: ShowInputs): AnalysisResult {
     tmav,
     fb_per_head: fb,
     net_fee_per_head: netFee,
+    // Pass-through only — opening_cost never touches tmav/guardrails/tiers above.
+    opening_cost: inputs.opening_cost ?? 0,
     cpa_guardrails: {
       early: 0.6 * tmav,
       mid: 0.75 * tmav,

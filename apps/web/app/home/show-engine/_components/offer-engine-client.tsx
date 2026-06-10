@@ -51,6 +51,7 @@ type FormState = {
   guarantee: string;
   backend_promoter_share: string;
   fixed_show_expenses: string;
+  opening_cost: string;
   conservative_attendance: string;
   target_attendance: string;
   sellout_attendance: string;
@@ -69,6 +70,7 @@ const DEFAULTS: FormState = {
   guarantee: '5000',
   backend_promoter_share: '0.8',
   fixed_show_expenses: '',
+  opening_cost: '',
   conservative_attendance: '400',
   target_attendance: '700',
   sellout_attendance: '1000',
@@ -154,6 +156,7 @@ export function OfferEngineClient() {
       guarantee: num(f.guarantee, 0),
       backend_promoter_share: num(f.backend_promoter_share),
       fixed_show_expenses: num(f.fixed_show_expenses, 0) ?? 0,
+      opening_cost: num(f.opening_cost, 0),
       bonus_tiers: f.offer_structure === 'bonus_escalator' ? tiers : undefined,
       conservative_attendance: Number(f.conservative_attendance),
       target_attendance: Number(f.target_attendance),
@@ -265,6 +268,7 @@ export function OfferEngineClient() {
       guarantee: String(i.guarantee ?? ''),
       backend_promoter_share: String(i.backend_promoter_share ?? ''),
       fixed_show_expenses: String(i.fixed_show_expenses ?? ''),
+      opening_cost: i.opening_cost != null ? String(i.opening_cost) : '',
       conservative_attendance: String(i.conservative_attendance ?? ''),
       target_attendance: String(i.target_attendance ?? ''),
       sellout_attendance: String(i.sellout_attendance ?? ''),
@@ -393,6 +397,17 @@ export function OfferEngineClient() {
             v={f.fixed_show_expenses}
             on={(x) => set('fixed_show_expenses', x)}
             placeholder={'0 = incomplete'}
+          />
+          <Field
+            label={'Opening cost (per show)'}
+            v={f.opening_cost}
+            on={(x) => set('opening_cost', x)}
+            placeholder={'0'}
+            help={
+              'Fixed cost to open the doors that night — staff, sound, light. ' +
+              'Separate from artist/production costs. Covered by attendance, ' +
+              'not used in the per-attendee ad math.'
+            }
           />
           <Field
             label={'F&B margin per head ($)'}
@@ -903,12 +918,14 @@ function Field({
   on,
   type,
   placeholder,
+  help,
 }: {
   label: string;
   v: string;
   on: (v: string) => void;
   type?: string;
   placeholder?: string;
+  help?: string;
 }) {
   return (
     <div>
@@ -922,6 +939,11 @@ function Field({
           'border-input bg-background h-9 w-full rounded-md border px-2 text-sm'
         }
       />
+      {help ? (
+        <p className={'text-muted-foreground mt-1 text-[11px] leading-snug'}>
+          {help}
+        </p>
+      ) : null}
     </div>
   );
 }

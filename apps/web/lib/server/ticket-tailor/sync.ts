@@ -71,23 +71,27 @@ export async function syncTicketTailorEvents(): Promise<
   return { ok: true, count: events.length };
 }
 
-export async function syncTicketTailorEvent(
+/**
+ * Admin-callable core: re-pull one event's issued tickets + orders and recompute
+ * total_issued / total_checked_in / gross_revenue_cents AUTHORITATIVELY. No
+ * session — the webhook and the reconcile cron pass an admin client + explicit
+ * tenant. Re-pull (not increment-from-payload) on purpose: webhooks miss,
+ * duplicate, and reorder, so a full re-pull makes the count correct every time.
+ */
+export async function syncEventCounts(
+  // The admin client is generic; ReturnType<> of it loses the Database arg, so
+  // accept it loosely (this file already routes every call through `as any`).
+  admin: any,
+  tenantId: string,
   ttEventId: string,
-): Promise<
-  | { ok: true; issued: number; checkedIn: number; revenueCents: number }
-  | { ok: false; error: string }
-> {
-  const { tenant } = await getTenantContext();
-  if (!tenant) return { ok: false, error: 'No client found.' };
-  const key = await getKey(tenant.id);
+): Promise<{ ok: true; issued: number } | { ok: false; error: string }> {
+  const key = await getKey(tenantId);
   if (!key) return { ok: false, error: 'Connect Ticket Tailor first.' };
-  const admin = getSupabaseServerAdminClient();
 
   const issued = await ttList(key, `/issued_tickets?event_id=${ttEventId}`);
   // VERIFIED against live TT v1 docs: an issued ticket's status is
   // 'valid' | 'voided' (NOT 'void'), and checked_in is the STRING "true"/"false"
-  // (NOT a boolean). The connection spec's `!== 'void'` / `!!t.checked_in` would
-  // count voided tickets as sold and every ticket as checked-in.
+  // (NOT a boolean).
   const valid = issued.filter((t) => t.status !== 'voided');
   const isCheckedIn = (t: any) =>
     t.checked_in === true || t.checked_in === 'true';
@@ -102,7 +106,7 @@ export async function syncTicketTailorEvent(
     revenueCents += amount;
     await (admin as any).from('ticket_tailor_orders').upsert(
       {
-        tenant_id: tenant.id,
+        tenant_id: tenantId,
         tt_event_id: String(ttEventId),
         tt_order_id: String(o.id),
         buyer_name: o.buyer_details?.name ?? null,
@@ -125,10 +129,20 @@ export async function syncTicketTailorEvent(
       gross_revenue_cents: revenueCents,
       last_synced_at: new Date().toISOString(),
     })
-    .eq('tenant_id', tenant.id)
+    .eq('tenant_id', tenantId)
     .eq('tt_event_id', String(ttEventId));
 
-  return { ok: true, issued: valid.length, checkedIn, revenueCents };
+  return { ok: true, issued: valid.length };
+}
+
+// Thin session wrapper for logged-in callers (the settings "Sync" button).
+// Behavior is unchanged: resolve the session tenant, then refresh that event.
+export async function syncTicketTailorEvent(
+  ttEventId: string,
+): Promise<{ ok: true; issued: number } | { ok: false; error: string }> {
+  const { tenant } = await getTenantContext();
+  if (!tenant) return { ok: false, error: 'No client found.' };
+  return syncEventCounts(getSupabaseServerAdminClient(), tenant.id, ttEventId);
 }
 
 export type TicketTailorEventRow = {

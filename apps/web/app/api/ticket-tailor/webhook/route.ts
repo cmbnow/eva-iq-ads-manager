@@ -1,9 +1,19 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
-
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+import { createHash } from 'node:crypto';
+
 import { getSupabaseServerAdminClient } from '@kit/supabase/server-admin-client';
+
+import { syncEventCounts } from '~/lib/server/ticket-tailor/sync';
+
+import {
+  isCountRefreshEvent,
+  isEventMetaEvent,
+  pickEventMeta,
+  pickWebhookEventId,
+  secretsMatch,
+} from './parse';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -12,19 +22,9 @@ import { getSupabaseServerAdminClient } from '@kit/supabase/server-admin-client'
  * Receives TicketTailor order/ticket events. Tenant is resolved EXPLICITLY from
  * the query tenant id AND only accepted if the provided secret matches the
  * tenant's stored webhook_secret — never trusting a tenant id from the body.
- * Buyers are upserted into the first-party store (source='tickettailor').
+ * Buyers are upserted into the first-party store; the related event's counts are
+ * re-pulled so B1's walk-up projection updates itself (cron is the backstop).
  */
-function secretsMatch(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  try {
-    return timingSafeEqual(ab, bb);
-  } catch {
-    return false;
-  }
-}
-
 export async function POST(request: NextRequest) {
   const url = new URL(request.url);
   const tenantId = url.searchParams.get('t');
@@ -41,7 +41,10 @@ export async function POST(request: NextRequest) {
     .select('webhook_secret')
     .eq('tenant_id', tenantId)
     .maybeSingle();
-  if (!tok?.webhook_secret || !secretsMatch(secret, String(tok.webhook_secret))) {
+  if (
+    !tok?.webhook_secret ||
+    !secretsMatch(secret, String(tok.webhook_secret))
+  ) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
@@ -78,7 +81,11 @@ export async function POST(request: NextRequest) {
       is_first_party: true,
       consent_status: 'unknown',
       collected_at: new Date().toISOString(),
-      metadata: { event_type: eventType, order_id: orderId ?? null, has_email: Boolean(email) },
+      metadata: {
+        event_type: eventType,
+        order_id: orderId ?? null,
+        has_email: Boolean(email),
+      },
     });
     await (admin as any)
       .from('ticket_tailor_connections')
@@ -86,6 +93,38 @@ export async function POST(request: NextRequest) {
       .eq('tenant_id', tenantId);
   } catch {
     // Don't fail the webhook on a storage hiccup — TicketTailor would just retry.
+  }
+
+  // D2a: refresh the affected event's counts so total_issued (the field B1 reads)
+  // stays current. Re-pull, not increment — authoritative every time. Failures
+  // are swallowed; the reconcile cron is the correctness backstop.
+  if (isCountRefreshEvent(eventType)) {
+    const ttEventId = pickWebhookEventId(payload);
+    if (ttEventId) {
+      try {
+        await syncEventCounts(admin, tenantId, ttEventId);
+      } catch {
+        /* cron will reconcile */
+      }
+    }
+  } else if (isEventMetaEvent(eventType)) {
+    // event.created/updated/deleted -> keep the event's metadata current.
+    const meta = pickEventMeta(payload);
+    if (meta) {
+      try {
+        await (admin as any).from('ticket_tailor_events').upsert(
+          {
+            tenant_id: tenantId,
+            tt_event_id: meta.id,
+            name: meta.name,
+            event_date: meta.event_date,
+          },
+          { onConflict: 'tenant_id,tt_event_id' },
+        );
+      } catch {
+        /* cron will reconcile */
+      }
+    }
   }
 
   return NextResponse.json({ ok: true }, { status: 200 });

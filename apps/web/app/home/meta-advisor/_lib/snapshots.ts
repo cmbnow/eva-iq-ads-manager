@@ -1,5 +1,8 @@
 'use server';
 
+import { SupabaseClient } from '@supabase/supabase-js';
+
+import { Database } from '@kit/supabase/database';
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
 
 import type { AccountSummary, AdAnalysis, AnalysisResult } from './analyze';
@@ -34,7 +37,7 @@ function toMeta(row: Record<string, unknown>): SnapshotMeta {
 }
 
 async function firstTenantId(
-  supabase: ReturnType<typeof getSupabaseServerClient>,
+  supabase: SupabaseClient<Database>,
 ): Promise<string | null> {
   const { data } = await supabase
     .from('tenants')

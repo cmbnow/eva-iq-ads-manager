@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@kit/ui/card';
 
 import {
   type SavedShow,
+  getWalkupForShow,
   listAnalyses,
   parseOfferSheet,
   saveAnalysis,
@@ -23,6 +24,7 @@ import {
   analyzeShow,
   blendTicketPricing,
 } from '../_lib/offer-engine';
+import { type WalkupResult } from '../_lib/walkup-projection';
 
 const dollars = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 
@@ -98,6 +100,7 @@ export function OfferEngineClient({
     { from_attendance: 500, to_attendance: 750, bonus_paid: 1000 },
   ]);
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [walkup, setWalkup] = useState<WalkupResult | null>(null);
   const [saved, setSaved] = useState<SavedShow[]>([]);
   const [parsing, setParsing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -182,7 +185,18 @@ export function OfferEngineClient({
 
   function run() {
     setMsg(null);
-    setResult(analyzeShow(buildInputs()));
+    const inputs = buildInputs();
+    setResult(analyzeShow(inputs));
+    // B1: live walk-up projection from this tenant's Ticket Tailor sales,
+    // matched to a TT event by the show date. Null when there's no match.
+    setWalkup(null);
+    getWalkupForShow({
+      showDate: f.show_date || null,
+      target_attendance: inputs.target_attendance,
+      sellout_attendance: inputs.sellout_attendance,
+    })
+      .then(setWalkup)
+      .catch(() => setWalkup(null));
   }
 
   async function onSave() {
@@ -680,6 +694,7 @@ export function OfferEngineClient({
       {result ? (
         <Results
           r={result}
+          walkup={walkup}
           fbAvgCheckPerHead={fbAvgCheckPerHead}
           fbMarginRate={fbMarginRate}
         />
@@ -723,12 +738,24 @@ export function OfferEngineClient({
   );
 }
 
+function paceEmoji(p: WalkupResult['pace_vs_target']): string {
+  return p === 'ahead'
+    ? '🔵'
+    : p === 'on_track'
+      ? '🟢'
+      : p === 'behind'
+        ? '🟡'
+        : '⚪';
+}
+
 function Results({
   r,
+  walkup,
   fbAvgCheckPerHead,
   fbMarginRate,
 }: {
   r: AnalysisResult;
+  walkup: WalkupResult | null;
   fbAvgCheckPerHead: number | null;
   fbMarginRate: number | null;
 }) {
@@ -890,6 +917,46 @@ function Results({
           ))}
         </CardContent>
       </Card>
+
+      {/* B1: walk-up pace (live ticket sales vs. the show's target) */}
+      {walkup ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className={'text-base'}>Pace (live sales)</CardTitle>
+          </CardHeader>
+          <CardContent className={'space-y-1 text-sm'}>
+            {walkup.too_early ? (
+              <p className={'text-muted-foreground'}>
+                Too early to project — sales data doesn&apos;t predict this far
+                out yet.
+              </p>
+            ) : (
+              <>
+                <p className={'flex flex-wrap items-center gap-x-2 gap-y-1'}>
+                  <span className={'text-lg'}>
+                    {paceEmoji(walkup.pace_vs_target)}
+                  </span>
+                  <span className={'font-semibold'}>
+                    Projected final: ~{walkup.projected_final}
+                  </span>
+                  {walkup.curve_is_estimated ? (
+                    <span className={'text-muted-foreground text-xs'}>
+                      (estimated)
+                    </span>
+                  ) : null}
+                  <span className={'text-muted-foreground text-xs capitalize'}>
+                    · {walkup.pace_vs_target.replace('_', ' ')} vs target
+                  </span>
+                </p>
+                <p className={'text-muted-foreground text-[11px]'}>
+                  {Math.round(walkup.fraction_complete * 100)}% of a typical
+                  show&apos;s sales expected in by now.
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Scenarios */}
       <Card>

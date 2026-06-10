@@ -3,6 +3,7 @@
 import { callClaude, extractJson, getTenantContext } from '~/lib/server/ai';
 
 import { type AnalysisResult, type ShowInputs } from './offer-engine';
+import { type WalkupResult, projectWalkup } from './walkup-projection';
 
 export type SavedShow = {
   id: string;
@@ -80,11 +81,19 @@ export async function parseOfferSheet(input: {
   const block = isPdf
     ? {
         type: 'document' as const,
-        source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: input.data },
+        source: {
+          type: 'base64' as const,
+          media_type: 'application/pdf' as const,
+          data: input.data,
+        },
       }
     : {
         type: 'image' as const,
-        source: { type: 'base64' as const, media_type: input.mediaType, data: input.data },
+        source: {
+          type: 'base64' as const,
+          media_type: input.mediaType,
+          data: input.data,
+        },
       };
 
   const res = await callClaude({
@@ -108,8 +117,56 @@ export async function parseOfferSheet(input: {
 
   if (!res.ok) return { ok: false, error: res.error };
   try {
-    return { ok: true, fields: JSON.parse(extractJson(res.text)) as ParsedOffer };
+    return {
+      ok: true,
+      fields: JSON.parse(extractJson(res.text)) as ParsedOffer,
+    };
   } catch {
-    return { ok: false, error: 'Could not read that sheet. Enter the fields manually.' };
+    return {
+      ok: false,
+      error: 'Could not read that sheet. Enter the fields manually.',
+    };
   }
+}
+
+/** Whole days from local midnight today to a YYYY-MM-DD date (never negative). */
+function daysUntil(dateStr: string): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const event = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(event.getTime())) return 0;
+  return Math.max(0, Math.ceil((event.getTime() - today.getTime()) / 86400000));
+}
+
+/**
+ * B1: live walk-up projection for a show, using the tenant's Ticket Tailor data.
+ * There is no show↔TT-event link table yet (a later item), and B1 adds no
+ * migration — so v1 associates a show to a TT event by matching event_date.
+ * Returns null when there's no tenant, no date, or no matching TT event.
+ */
+export async function getWalkupForShow(input: {
+  showDate: string | null;
+  target_attendance: number;
+  sellout_attendance: number;
+}): Promise<WalkupResult | null> {
+  if (!input.showDate) return null;
+  const { supabase, tenant } = await getTenantContext();
+  if (!tenant) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any;
+  const { data } = await db
+    .from('ticket_tailor_events')
+    .select('total_issued, event_date')
+    .eq('tenant_id', tenant.id)
+    .eq('event_date', input.showDate)
+    .limit(1)
+    .maybeSingle();
+  if (!data || data.event_date == null) return null;
+
+  return projectWalkup({
+    tickets_sold: Number(data.total_issued ?? 0),
+    days_remaining: daysUntil(String(data.event_date)),
+    target_attendance: input.target_attendance,
+    sellout_attendance: input.sellout_attendance,
+  });
 }

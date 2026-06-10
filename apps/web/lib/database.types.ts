@@ -185,6 +185,8 @@ export type Database = {
         Row: {
           created_at: string;
           created_by: string | null;
+          fb_avg_check_per_head: number | null;
+          fb_margin_rate: number | null;
           id: string;
           is_active: boolean;
           name: string;
@@ -199,6 +201,8 @@ export type Database = {
         Insert: {
           created_at?: string;
           created_by?: string | null;
+          fb_avg_check_per_head?: number | null;
+          fb_margin_rate?: number | null;
           id?: string;
           is_active?: boolean;
           name: string;
@@ -213,6 +217,8 @@ export type Database = {
         Update: {
           created_at?: string;
           created_by?: string | null;
+          fb_avg_check_per_head?: number | null;
+          fb_margin_rate?: number | null;
           id?: string;
           is_active?: boolean;
           name?: string;

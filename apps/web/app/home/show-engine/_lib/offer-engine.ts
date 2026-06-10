@@ -70,6 +70,8 @@ export interface AnalysisResult {
   tmv: number;
   tmav: number;
   fb_per_head: number;
+  /** True when no F&B basis was supplied — F&B was excluded (treated as 0), not assumed. */
+  fb_basis_missing: boolean;
   net_fee_per_head: number;
   opening_cost: number; // pass-through of the per-show fixed open cost (0 if unset)
   breakeven_fb_only: number | null; // attendees for F&B margin to cover Opening Cost
@@ -96,18 +98,13 @@ export interface AnalysisResult {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-/**
- * Forward PLANNING assumption for F&B gross-margin contribution per attendee.
- * Used only for budgeting a show BEFORE it happens. Post-event measurement must
- * use ACTUAL F&B from real sales — never substitute this assumption into a
- * profit verdict. Assumption for planning, actuals for measuring.
- *
- * This is a MARGIN figure, not a sales figure:
- *   = Bart's 2025 avg guest check $25 × 71% weighted gross F&B margin = $17.75.
- * Conservative (per-check, campus-wide; event-space per-head runs higher);
- * trued up per-tenant once Toast/QBO feed live per-head data.
+/*
+ * A5: there is NO fabricated F&B default. F&B contribution per head is sourced
+ * per-tenant (gross avg check × margin rate) and passed in on
+ * f_and_b_contribution_per_head. When it is absent (null/undefined), F&B is
+ * EXCLUDED from the planning math (treated as 0) and the result flags
+ * fb_basis_missing — never assumed.
  */
-export const DEFAULT_FB_PER_HEAD = 17.75;
 const artistShare = (i: ShowInputs) =>
   i.backend_artist_share ??
   (i.backend_promoter_share != null ? 1 - i.backend_promoter_share : 0.2);
@@ -157,7 +154,7 @@ export function tierTMVs(
 }
 
 export function calculateTMV(i: ShowInputs): number {
-  const fb = i.f_and_b_contribution_per_head ?? DEFAULT_FB_PER_HEAD;
+  const fb = i.f_and_b_contribution_per_head ?? 0; // A5: absent => F&B excluded
   switch (i.offer_structure) {
     case 'straight_guarantee':
       return i.avg_ticket_price;
@@ -211,7 +208,7 @@ function modelScenario(
   i: ShowInputs,
   marketingBudget: number,
 ): ScenarioResult {
-  const fb = i.f_and_b_contribution_per_head ?? DEFAULT_FB_PER_HEAD;
+  const fb = i.f_and_b_contribution_per_head ?? 0; // A5: absent => F&B excluded
   const netFee = i.net_fee_per_head ?? 0;
   const ticket_revenue = attendance * i.avg_ticket_price;
   const f_and_b_contribution = attendance * fb;
@@ -236,7 +233,7 @@ function modelScenario(
 
 function detectRiskFlags(i: ShowInputs, tmv: number, tmav: number): string[] {
   const flags: string[] = [];
-  const fb = i.f_and_b_contribution_per_head ?? DEFAULT_FB_PER_HEAD;
+  const fb = i.f_and_b_contribution_per_head ?? 0; // A5: absent => F&B excluded
 
   if (i.offer_structure === 'bonus_escalator') {
     for (const { tier, tier_TMV } of tierTMVs(i)) {
@@ -283,7 +280,7 @@ function calculateDealScore(
   target: ScenarioResult,
   sellout: ScenarioResult,
 ): 'A' | 'B' | 'C' | 'D' {
-  const fb = i.f_and_b_contribution_per_head ?? DEFAULT_FB_PER_HEAD;
+  const fb = i.f_and_b_contribution_per_head ?? 0; // A5: absent => F&B excluded
   const fbDependent = tmv < fb;
   const bonusCliff = flags.some((f) => f.startsWith('Bonus cliff'));
   const profitConservative = conservative.net_profit >= 0;
@@ -331,7 +328,9 @@ function buildExecutiveRecommendation(
 }
 
 export function analyzeShow(inputs: ShowInputs): AnalysisResult {
-  const fb = inputs.f_and_b_contribution_per_head ?? DEFAULT_FB_PER_HEAD;
+  // A5: F&B basis comes from tenant config (passed in). Absent => exclude + flag.
+  const fbProvided = inputs.f_and_b_contribution_per_head != null;
+  const fb = fbProvided ? inputs.f_and_b_contribution_per_head! : 0;
   const netFee = inputs.net_fee_per_head ?? 0;
   const tmv = calculateTMV(inputs);
   const tmav = tmv + fb + netFee; // booking fee adds to TMAV, parallel to F&B
@@ -399,6 +398,7 @@ export function analyzeShow(inputs: ShowInputs): AnalysisResult {
     tmv,
     tmav,
     fb_per_head: fb,
+    fb_basis_missing: !fbProvided,
     net_fee_per_head: netFee,
     // Pass-through only — opening_cost never touches tmav/guardrails/tiers above.
     opening_cost: inputs.opening_cost ?? 0,

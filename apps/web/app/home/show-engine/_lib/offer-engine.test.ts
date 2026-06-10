@@ -1,18 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  DEFAULT_FB_PER_HEAD,
   type ShowInputs,
   analyzeShow,
   blendTicketPricing,
 } from './offer-engine';
 
-/*
- * F&B planning default is a sourced MARGIN figure (Spec A1):
- *   $25 avg check (Bart, 2025 Toast) × 71% weighted gross margin = $17.75/head.
- * A fresh run with no F&B override must budget off $17.75, not the old sales-
- * shaped $32. It enters TMAV straight as a per-attendee margin dollar amount.
- */
 /*
  * Opening cost is a per-show FIXED cost (doors/staff/sound/light). It is NOT
  * marginal, so it must stay entirely out of TMAV, the CPA guardrails, and the
@@ -111,34 +104,42 @@ describe('Breakeven attendance line', () => {
   });
 });
 
-describe('F&B planning default — sourced $17.75 margin/head', () => {
-  it('DEFAULT_FB_PER_HEAD is 17.75', () => {
-    expect(DEFAULT_FB_PER_HEAD).toBe(17.75);
+/*
+ * A5: F&B contribution per head is sourced per-tenant (gross avg check × margin
+ * rate), passed into the engine. There is NO fabricated default. When absent,
+ * F&B is excluded (treated as 0) and flagged — never assumed.
+ */
+describe('A5 — F&B basis from config, no fabricated default', () => {
+  const base: ShowInputs = {
+    venue_capacity: 1000,
+    avg_ticket_price: 25,
+    offer_structure: 'straight_guarantee',
+    guarantee: 5000,
+    fixed_show_expenses: 1000,
+    conservative_attendance: 400,
+    target_attendance: 700,
+    sellout_attendance: 1000,
+    days_remaining: 45,
+    f_and_b_contribution_per_head: 26, // caller derived check 40 × 0.65 = 26
+  };
+
+  it('present basis rides into TMAV as check × rate', () => {
+    const r = analyzeShow({ ...base, f_and_b_contribution_per_head: 26 });
+    expect(r.fb_basis_missing).toBe(false);
+    expect(r.tmav).toBeCloseTo(base.avg_ticket_price + 26, 10); // 25 + 26 = 51
   });
 
-  it('a fresh run with no F&B override uses $17.75 in TMAV (not $32)', () => {
-    const inputs: ShowInputs = {
-      venue_capacity: 1000,
-      avg_ticket_price: 25,
-      offer_structure: 'straight_guarantee',
-      guarantee: 5000,
-      fixed_show_expenses: 1000,
-      conservative_attendance: 400,
-      target_attendance: 700,
-      sellout_attendance: 1000,
-      days_remaining: 45,
-      // no f_and_b_contribution_per_head -> falls back to the default
-    };
+  it('absent basis excludes F&B (=0) and flags it — no assumed number', () => {
+    const noFb: ShowInputs = { ...base };
+    delete noFb.f_and_b_contribution_per_head; // optional -> truly unset
+    const r = analyzeShow(noFb);
 
-    const r = analyzeShow(inputs);
-
-    // Added straight in as a margin dollar amount: TMAV = TMV(25) + F&B(17.75).
-    expect(r.fb_per_head).toBe(17.75);
-    expect(r.tmav).toBeCloseTo(25 + 17.75, 10); // 42.75
-    expect(r.tmav).not.toBeCloseTo(25 + 32, 10); // the old $57 is gone
-    // CPA guardrails recompute off the lower TMAV.
-    expect(r.cpa_guardrails.early).toBeCloseTo(0.6 * r.tmav, 10);
-    expect(r.cpa_guardrails.ceiling).toBeCloseTo(r.tmav, 10);
+    expect(r.fb_basis_missing).toBe(true);
+    expect(r.fb_per_head).toBe(0);
+    expect(r.scenarios.target.f_and_b_contribution).toBe(0);
+    // Breakeven is tickets-only, NOT computed off any fabricated 17.75.
+    expect(r.breakeven_fb_only).toBeNull();
+    expect(r.tmav).toBeCloseTo(base.avg_ticket_price, 10); // ticket-only floor
   });
 });
 

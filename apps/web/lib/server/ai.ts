@@ -28,7 +28,9 @@ export async function getTenantContext() {
   } = await supabase.auth.getUser();
   const { data } = await supabase
     .from('tenants')
-    .select('id, name, special_ad_category, vertical')
+    .select(
+      'id, name, special_ad_category, vertical, fb_avg_check_per_head, fb_margin_rate',
+    )
     .order('created_at', { ascending: true })
     .limit(1);
   return { supabase, user, tenant: data?.[0] ?? null };
@@ -89,7 +91,10 @@ export async function callClaude(opts: {
     usage?: { input_tokens?: number; output_tokens?: number };
   };
 
-  const text = (data.content ?? []).map((b) => b.text ?? '').join('').trim();
+  const text = (data.content ?? [])
+    .map((b) => b.text ?? '')
+    .join('')
+    .trim();
   const tokensIn = data.usage?.input_tokens ?? 0;
   const tokensOut = data.usage?.output_tokens ?? 0;
 
@@ -119,6 +124,7 @@ export function extractJson(text: string): string {
   if (fenced?.[1]) return fenced[1].trim();
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
-  if (start !== -1 && end !== -1 && end > start) return text.slice(start, end + 1);
+  if (start !== -1 && end !== -1 && end > start)
+    return text.slice(start, end + 1);
   return text;
 }

@@ -57,7 +57,6 @@ type FormState = {
   sellout_attendance: string;
   baseline_attendance: string;
   days_remaining: string;
-  f_and_b_contribution_per_head: string;
   historical_cpa: string;
 };
 
@@ -76,12 +75,24 @@ const DEFAULTS: FormState = {
   sellout_attendance: '1000',
   baseline_attendance: '',
   days_remaining: '45',
-  f_and_b_contribution_per_head: '17.75', // PLANNING margin/head (DEFAULT_FB_PER_HEAD)
   historical_cpa: '',
 };
 
-export function OfferEngineClient() {
+export function OfferEngineClient({
+  fbAvgCheckPerHead,
+  fbMarginRate,
+}: {
+  // A5: per-tenant F&B basis (from server props). null = not configured.
+  fbAvgCheckPerHead: number | null;
+  fbMarginRate: number | null;
+}) {
   const [f, setF] = useState<FormState>(DEFAULTS);
+  // Derived F&B contribution/head = gross avg check × margin rate. Undefined when
+  // the tenant hasn't set its basis -> engine excludes F&B and flags it.
+  const fbContribution =
+    fbAvgCheckPerHead != null && fbMarginRate != null
+      ? fbAvgCheckPerHead * fbMarginRate
+      : undefined;
   const [tiers, setTiers] = useState<BonusTier[]>([
     { from_attendance: 0, to_attendance: 500, bonus_paid: 0 },
     { from_attendance: 500, to_attendance: 750, bonus_paid: 1000 },
@@ -163,10 +174,8 @@ export function OfferEngineClient() {
       sellout_attendance: Number(f.sellout_attendance),
       baseline_attendance: num(f.baseline_attendance),
       days_remaining: Number(f.days_remaining),
-      f_and_b_contribution_per_head: num(
-        f.f_and_b_contribution_per_head,
-        17.75,
-      ),
+      // A5: from tenant config (check × rate); undefined => F&B excluded + flagged.
+      f_and_b_contribution_per_head: fbContribution,
       historical_cpa: num(f.historical_cpa),
     };
   }
@@ -275,9 +284,6 @@ export function OfferEngineClient() {
       baseline_attendance:
         i.baseline_attendance != null ? String(i.baseline_attendance) : '',
       days_remaining: String(i.days_remaining ?? ''),
-      f_and_b_contribution_per_head: String(
-        i.f_and_b_contribution_per_head ?? 17.75,
-      ),
       historical_cpa: i.historical_cpa != null ? String(i.historical_cpa) : '',
     });
     if (i.bonus_tiers) setTiers(i.bonus_tiers);
@@ -408,11 +414,6 @@ export function OfferEngineClient() {
               'Separate from artist/production costs. Covered by attendance, ' +
               'not used in the per-attendee ad math.'
             }
-          />
-          <Field
-            label={'F&B margin per head ($)'}
-            v={f.f_and_b_contribution_per_head}
-            on={(x) => set('f_and_b_contribution_per_head', x)}
           />
           <Field
             label={'Conservative attendance'}
@@ -676,7 +677,13 @@ export function OfferEngineClient() {
         </CardContent>
       </Card>
 
-      {result ? <Results r={result} /> : null}
+      {result ? (
+        <Results
+          r={result}
+          fbAvgCheckPerHead={fbAvgCheckPerHead}
+          fbMarginRate={fbMarginRate}
+        />
+      ) : null}
 
       {saved.length ? (
         <Card>
@@ -716,7 +723,15 @@ export function OfferEngineClient() {
   );
 }
 
-function Results({ r }: { r: AnalysisResult }) {
+function Results({
+  r,
+  fbAvgCheckPerHead,
+  fbMarginRate,
+}: {
+  r: AnalysisResult;
+  fbAvgCheckPerHead: number | null;
+  fbMarginRate: number | null;
+}) {
   const scoreVariant =
     r.deal_score === 'A' || r.deal_score === 'B'
       ? 'success'
@@ -739,6 +754,27 @@ function Results({ r }: { r: AnalysisResult }) {
               TMAV = TMV {dollars(r.tmv)} + F&B {dollars(r.fb_per_head)}
               {r.net_fee_per_head ? ` + fee ${cents(r.net_fee_per_head)}` : ''}
             </p>
+            {/* A5: F&B basis provenance / missing-basis notice. */}
+            {r.fb_basis_missing ? (
+              <p
+                className={
+                  'text-muted-foreground border-muted-foreground/30 mt-1 max-w-md rounded-md border border-dashed p-2 text-[11px] leading-snug'
+                }
+              >
+                F&amp;B basis not set for this client — breakeven shown on
+                ticket margin only. Set average check + margin in client
+                settings to include F&amp;B.
+              </p>
+            ) : (
+              <p className={'text-muted-foreground mt-1 text-[11px]'}>
+                F&amp;B margin/head: <strong>{cents(r.fb_per_head)}</strong>
+                {fbAvgCheckPerHead != null && fbMarginRate != null
+                  ? ` (avg check ${cents(fbAvgCheckPerHead)} × ${Math.round(
+                      fbMarginRate * 100,
+                    )}%)`
+                  : ''}
+              </p>
+            )}
           </div>
           <div>
             <p className={'text-muted-foreground text-xs'}>Deal score</p>

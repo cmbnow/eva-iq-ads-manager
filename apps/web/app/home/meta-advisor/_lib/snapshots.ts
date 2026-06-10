@@ -2,8 +2,9 @@
 
 import { SupabaseClient } from '@supabase/supabase-js';
 
-import { Database } from '@kit/supabase/database';
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+import { Database } from '~/lib/database.types';
 
 import type { AccountSummary, AdAnalysis, AnalysisResult } from './analyze';
 

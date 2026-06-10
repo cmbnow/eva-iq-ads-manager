@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { FileText, Paperclip, Plus, Send, X } from 'lucide-react';
 
 import { Button } from '@kit/ui/button';
-import { Card, CardContent } from '@kit/ui/card';
+import { Card } from '@kit/ui/card';
 import { cn } from '@kit/ui/utils';
 
 import {

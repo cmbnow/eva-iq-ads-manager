@@ -4,7 +4,6 @@ import {
   Home,
   LineChart,
   Megaphone,
-  MessageSquare,
   User,
 } from 'lucide-react';
 import { z } from 'zod';

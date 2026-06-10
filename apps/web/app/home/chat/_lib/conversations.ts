@@ -83,7 +83,7 @@ export async function sendMessage(params: {
   text: string;
   attachment?: { data: string; mediaType: string; name: string } | null;
 }): Promise<SendResult> {
-  const { supabase, user, tenant } = await getTenantContext();
+  const { supabase, tenant } = await getTenantContext();
   if (!tenant) return { ok: false, error: 'No client found.' };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any;

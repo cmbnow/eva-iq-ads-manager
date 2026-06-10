@@ -105,7 +105,7 @@ export async function generateAdPlan(
         messages: [{ role: 'user', content: userPrompt }],
       }),
     });
-  } catch (err) {
+  } catch {
     return {
       ok: false,
       error:

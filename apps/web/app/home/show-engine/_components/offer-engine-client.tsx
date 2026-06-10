@@ -794,7 +794,7 @@ function Results({ r }: { r: AnalysisResult }) {
             <p
               className={'text-muted-foreground mt-1 text-[11px] leading-snug'}
             >
-              F&B margin alone covering the cost to open the doors.
+              Gut check: F&B margin alone covering the cost to open.
             </p>
           </div>
           <div>
@@ -805,7 +805,8 @@ function Results({ r }: { r: AnalysisResult }) {
             <p
               className={'text-muted-foreground mt-1 text-[11px] leading-snug'}
             >
-              Tickets + F&B covering the open and the artist/production costs.
+              The real floor — tickets + F&B covering the open AND the
+              artist/production deal.
             </p>
           </div>
         </CardContent>

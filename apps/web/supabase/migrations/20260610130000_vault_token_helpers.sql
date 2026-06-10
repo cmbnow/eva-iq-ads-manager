@@ -2,7 +2,6 @@
 -- Captured verbatim from the live prod schema (schema-drift guard, run #2 on
 -- commit 96585c1) so the committed migrations match prod. CREATE OR REPLACE
 -- makes this idempotent against the already-applied functions.
-set check_function_bodies = off;
 
 CREATE OR REPLACE FUNCTION public.get_meta_token(p_tenant uuid)
  RETURNS text

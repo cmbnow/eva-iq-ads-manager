@@ -778,6 +778,39 @@ function Results({ r }: { r: AnalysisResult }) {
         </CardContent>
       </Card>
 
+      {/* Breakeven (read-only, pre-marketing) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className={'text-base'}>Breakeven (before ads)</CardTitle>
+        </CardHeader>
+        <CardContent
+          className={'grid grid-cols-1 gap-3 text-sm sm:grid-cols-2'}
+        >
+          <div>
+            <p className={'font-semibold'}>
+              Bar covers the open: ~
+              {r.breakeven_fb_only != null ? r.breakeven_fb_only : '—'} people
+            </p>
+            <p
+              className={'text-muted-foreground mt-1 text-[11px] leading-snug'}
+            >
+              F&B margin alone covering the cost to open the doors.
+            </p>
+          </div>
+          <div>
+            <p className={'font-semibold'}>
+              Show breakeven (before ads): ~
+              {r.breakeven_full != null ? r.breakeven_full : '—'} people
+            </p>
+            <p
+              className={'text-muted-foreground mt-1 text-[11px] leading-snug'}
+            >
+              Tickets + F&B covering the open and the artist/production costs.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Budget tiers */}
       <Card>
         <CardHeader>

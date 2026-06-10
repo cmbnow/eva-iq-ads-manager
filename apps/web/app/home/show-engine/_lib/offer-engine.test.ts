@@ -54,6 +54,63 @@ describe('Opening cost — stored, but out of the marginal math', () => {
   });
 });
 
+/*
+ * Breakeven attendance (read-only, pre-marketing). Two figures from existing
+ * values: #1 F&B margin alone covers the open; #2 full pre-ad breakeven (TMAV
+ * covers open + artist/production fixed). Round UP. Must not touch the marginal
+ * math (tmav/guardrails/mrmc/tiers).
+ */
+describe('Breakeven attendance line', () => {
+  const base: ShowInputs = {
+    venue_capacity: 1000,
+    avg_ticket_price: 25, // straight_guarantee -> tmv = 25
+    offer_structure: 'straight_guarantee',
+    guarantee: 5000,
+    fixed_show_expenses: 1000, // gigFixed = 5000 + 1000 = 6000
+    conservative_attendance: 400,
+    target_attendance: 700,
+    sellout_attendance: 1000,
+    days_remaining: 45,
+    f_and_b_contribution_per_head: 17.75, // tmav = 25 + 17.75 = 42.75
+  };
+
+  it('fb-only breakeven = ceil(openCost / fb) = 102 at $1806 / $17.75', () => {
+    const r = analyzeShow({ ...base, opening_cost: 1806 });
+    expect(r.breakeven_fb_only).toBe(102); // ceil(1806/17.75) = ceil(101.74)
+    // full = ceil((1806 + 6000) / 42.75) = ceil(182.6) = 183
+    expect(r.breakeven_full).toBe(183);
+  });
+
+  it('opening cost 0 -> fb-only 0, full = ceil(gigFixed / tmav), no divide-by-zero', () => {
+    const r = analyzeShow({ ...base, opening_cost: 0 });
+    expect(r.breakeven_fb_only).toBe(0);
+    expect(r.breakeven_full).toBe(141); // ceil(6000/42.75) = ceil(140.35)
+    expect(Number.isFinite(r.breakeven_full as number)).toBe(true);
+  });
+
+  it('null (not a crash) when F&B margin is 0', () => {
+    const r = analyzeShow({
+      ...base,
+      opening_cost: 1806,
+      f_and_b_contribution_per_head: 0,
+    });
+    expect(r.breakeven_fb_only).toBeNull();
+  });
+
+  it('is purely additive — marginal math (tmav/guardrails/mrmc/tiers) is unchanged', () => {
+    // Pin the marginal outputs for a fixed input so a regression would trip.
+    const noOpen = analyzeShow({ ...base, opening_cost: 0 });
+    const withOpen = analyzeShow({ ...base, opening_cost: 1806 });
+
+    expect(withOpen.tmav).toBe(noOpen.tmav);
+    expect(withOpen.mrmc).toBe(noOpen.mrmc);
+    expect(withOpen.cpa_guardrails).toEqual(noOpen.cpa_guardrails);
+    expect(withOpen.budget_tiers).toEqual(noOpen.budget_tiers);
+    // Only the breakeven readout moves with opening cost.
+    expect(withOpen.breakeven_full).not.toBe(noOpen.breakeven_full);
+  });
+});
+
 describe('F&B planning default — sourced $17.75 margin/head', () => {
   it('DEFAULT_FB_PER_HEAD is 17.75', () => {
     expect(DEFAULT_FB_PER_HEAD).toBe(17.75);

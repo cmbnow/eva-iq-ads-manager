@@ -72,6 +72,8 @@ export interface AnalysisResult {
   fb_per_head: number;
   net_fee_per_head: number;
   opening_cost: number; // pass-through of the per-show fixed open cost (0 if unset)
+  breakeven_fb_only: number | null; // attendees for F&B margin to cover Opening Cost
+  breakeven_full: number | null; // attendees for the show to break even pre-ads
   cpa_guardrails: { early: number; mid: number; late: number; ceiling: number };
   incremental_attendees: number;
   mrmc: number;
@@ -334,6 +336,22 @@ export function analyzeShow(inputs: ShowInputs): AnalysisResult {
   const tmv = calculateTMV(inputs);
   const tmav = tmv + fb + netFee; // booking fee adds to TMAV, parallel to F&B
 
+  // Breakeven attendance (read-only, pre-marketing). Computed from values already
+  // in scope — no new economic assumptions. Round UP: a partial person doesn't
+  // cover cost. Does NOT touch tmav/guardrails/mrmc/tiers below.
+  const openCost = inputs.opening_cost ?? 0;
+  const gigFixed = (inputs.guarantee ?? 0) + inputs.fixed_show_expenses;
+
+  // #1 — F&B margin alone covers the cost of opening the doors (Bart's ~101).
+  const breakeven_fb_only = fb > 0 ? Math.ceil(openCost / fb) : null;
+
+  // #2 — full show breakeven before ad spend: per-head total contribution (TMAV =
+  // ticket + F&B + net fee) covers the open + the artist/production fixed costs.
+  // No double-count: tmv already reflects the offer structure (door-split share is
+  // in tmv; the guarantee is the fixed floor here, not in tmv).
+  const breakeven_full =
+    tmav > 0 ? Math.ceil((openCost + gigFixed) / tmav) : null;
+
   const conservative = modelScenario(inputs.conservative_attendance, inputs, 0);
   const target = modelScenario(inputs.target_attendance, inputs, 0);
   const sellout = modelScenario(inputs.sellout_attendance, inputs, 0);
@@ -384,6 +402,8 @@ export function analyzeShow(inputs: ShowInputs): AnalysisResult {
     net_fee_per_head: netFee,
     // Pass-through only — opening_cost never touches tmav/guardrails/tiers above.
     opening_cost: inputs.opening_cost ?? 0,
+    breakeven_fb_only,
+    breakeven_full,
     cpa_guardrails: {
       early: 0.6 * tmav,
       mid: 0.75 * tmav,

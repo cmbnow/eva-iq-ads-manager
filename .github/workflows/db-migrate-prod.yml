@@ -1,0 +1,66 @@
+name: DB · Apply migrations to PROD (manual)
+
+# Manual ONLY. There is a live tenant — migrations never auto-apply on push.
+# Run from the Actions tab → this workflow → "Run workflow", and type "apply".
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "apply" to confirm pushing committed migrations to PRODUCTION.'
+        required: true
+        default: ''
+
+concurrency:
+  group: prod-db-apply
+  cancel-in-progress: false
+
+jobs:
+  push:
+    name: supabase db push → prod
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    # Only ever from main.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    # Optional 2nd gate: in repo Settings → Environments → "production", add
+    # required reviewers so a human must approve each run.
+    environment: production
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require typed confirmation
+        if: ${{ github.event.inputs.confirm != 'apply' }}
+        run: |
+          echo "::error::You must type 'apply' to confirm. Aborting."
+          exit 1
+
+      - name: Check required secrets
+        run: |
+          if [ -z "${{ secrets.SUPABASE_PROJECT_REF }}" ]; then
+            echo "::error::Missing secrets. Add SUPABASE_PROJECT_REF, SUPABASE_ACCESS_TOKEN, and SUPABASE_DB_PASSWORD in Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link to prod
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+
+      - name: Preview pending migrations (dry run)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase db push --dry-run
+
+      - name: Apply pending migrations to prod
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase db push

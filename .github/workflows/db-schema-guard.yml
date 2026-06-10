@@ -1,0 +1,58 @@
+name: DB · Schema guard (no uncommitted prod migrations)
+
+# Fails the build if production has schema changes (or applied migrations) that
+# are not committed to the repo. Runs on every push/PR to main so an in-session,
+# uncommitted migration can never silently exist again.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: db-schema-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Prod schema is fully committed
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    # Secrets are not exposed to fork PRs; only run for same-repo events.
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required secrets
+        run: |
+          if [ -z "${{ secrets.SUPABASE_PROJECT_REF }}" ]; then
+            echo "::error::Missing secrets. Add SUPABASE_PROJECT_REF, SUPABASE_ACCESS_TOKEN, and SUPABASE_DB_PASSWORD in Settings → Secrets and variables → Actions to enable the guard."
+            exit 1
+          fi
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link to prod
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+
+      # Catches DDL pasted into the SQL Editor (never a migration file).
+      - name: Live schema must match committed migrations (schema drift)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/check-schema-drift.sh"
+
+      # Catches migrations applied via the migration system but not committed.
+      - name: Applied migrations must be committed (version drift)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/check-migration-drift.sh"

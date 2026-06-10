@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  type BonusTier,
   type ShowInputs,
   analyzeShow,
   blendTicketPricing,
+  bonusAtTickets,
+  gigFixedExpenses,
 } from './offer-engine';
 
 /*
@@ -206,5 +209,76 @@ describe('blendTicketPricing / analyzeShow — $0-fee tier net fee precision', (
     expect(r.tmav).toBeCloseTo(35.975, 10);
     // If the math had used the rounded -1 it would be 36 — confirm it does NOT.
     expect(r.tmav).not.toBeCloseTo(36, 5);
+  });
+});
+
+/*
+ * A3-revise — the gig model keyed to how the venue actually deals (Prism):
+ * ticket-sold threshold bonuses (incremental / only-one) and itemized
+ * planned/actual gig expenses. Validated against the real Fozzy settlement.
+ */
+describe('A3 — gig model: threshold bonuses + itemized expenses (Fozzy)', () => {
+  const fozzy: ShowInputs = {
+    venue_capacity: 1000,
+    avg_ticket_price: 30,
+    offer_structure: 'bonus_escalator',
+    guarantee: 7000,
+    bonus_mode: 'incremental',
+    bonus_tiers: [500, 550, 600, 650, 700, 750, 800, 850].map((n) => ({
+      at_tickets: n,
+      bonus: 500,
+    })),
+    gig_expenses: [
+      { label: 'Production Manager', planned: 250 },
+      { label: 'Equipment Maintenance', planned: 90 },
+      { label: 'LD', planned: 275 },
+      { label: 'Catering', planned: 40 },
+      { label: 'Security', planned: 750 },
+      { label: 'Box Office Staff', planned: 100 },
+      { label: 'Marketing', planned: 800 },
+      { label: 'Hospitality', planned: 400 },
+    ], // = 2705
+    fixed_show_expenses: 0,
+    conservative_attendance: 300,
+    target_attendance: 600,
+    sellout_attendance: 1000,
+    days_remaining: 30,
+  };
+
+  it('reproduces the Prism settlement: 434 sold => gig cost 9705, gig profit $4,920', () => {
+    expect(gigFixedExpenses(fozzy)).toBe(2705);
+    // at 434 sold, lowest tier (500) not met -> bonus 0
+    const bonus = bonusAtTickets(434, fozzy.bonus_tiers!, fozzy.bonus_mode);
+    expect(bonus).toBe(0);
+    const gigCost = (fozzy.guarantee ?? 0) + bonus + gigFixedExpenses(fozzy);
+    expect(gigCost).toBe(9705); // 7000 + 0 + 2705
+    const GIG_GROSS = 14625; // Prism settlement gross (artist-deal P&L only)
+    expect(GIG_GROSS - gigCost).toBe(4920); // matches Prism exactly
+  });
+
+  it('incremental vs only_one at 600 sold', () => {
+    // met thresholds: 500, 550, 600
+    expect(bonusAtTickets(600, fozzy.bonus_tiers!, 'incremental')).toBe(1500);
+    expect(bonusAtTickets(600, fozzy.bonus_tiers!, 'only_one')).toBe(500);
+  });
+
+  it('legacy from_attendance/bonus_paid tiers still read (normalized)', () => {
+    const legacy: BonusTier[] = [
+      {
+        from_attendance: 500,
+        to_attendance: 750,
+        bonus_paid: 1000,
+      } as BonusTier,
+    ];
+    expect(bonusAtTickets(600, legacy, 'incremental')).toBe(1000);
+    expect(bonusAtTickets(400, legacy, 'incremental')).toBe(0);
+  });
+
+  it('artistCost (via analyzeShow) keys the bonus on tickets_sold, not scenario attendance', () => {
+    const r = analyzeShow({ ...fozzy, tickets_sold: 434 });
+    // target scenario attendance is 600, but tickets_sold 434 drives the bonus -> 0.
+    expect(r.scenarios.target.artist_cost).toBe(7000); // guarantee + 0
+    // itemized expenses flow into the scenario's fixed cost.
+    expect(r.scenarios.target.fixed_show_expenses).toBe(2705);
   });
 });

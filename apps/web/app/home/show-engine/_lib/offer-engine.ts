@@ -11,9 +11,21 @@ export type OfferStructure =
   | 'bonus_escalator';
 
 export interface BonusTier {
-  from_attendance: number;
-  to_attendance: number;
-  bonus_paid: number;
+  at_tickets: number; // bonus applies once tickets_sold >= this threshold
+  bonus: number; // flat $ added at this threshold
+  // legacy (old saved shows) — read-only fallback, not written going forward:
+  from_attendance?: number;
+  to_attendance?: number;
+  bonus_paid?: number;
+}
+
+export type BonusMode = 'incremental' | 'only_one';
+
+export interface GigExpense {
+  label: string; // "Security", "Hospitality", "LD"...
+  planned: number;
+  actual?: number; // null until settled
+  note?: string; // "5 @ $150", "10 meals @ $10"
 }
 
 export interface ShowInputs {
@@ -29,6 +41,9 @@ export interface ShowInputs {
   // Fixed, not marginal — does NOT enter TMAV. Used for breakeven + P&L only.
   opening_cost?: number;
   bonus_tiers?: BonusTier[];
+  bonus_mode?: BonusMode; // default 'incremental' (matches Prism)
+  gig_expenses?: GigExpense[]; // itemized; when present, derives fixed_show_expenses
+  tickets_sold?: number; // actuals settlement; falls back to scenario attendance
   conservative_attendance: number;
   target_attendance: number;
   sellout_attendance: number;
@@ -98,6 +113,18 @@ export interface AnalysisResult {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * Gig fixed cost (artist-deal only). Sum of itemized gig_expenses (actual ??
+ * planned) when present, else the legacy single fixed_show_expenses. The nut
+ * (opening_cost) and F&B are layered SEPARATELY and are not included here.
+ * Marketing is owned by the ad engine's marketingBudget — never entered here.
+ */
+export function gigFixedExpenses(i: ShowInputs): number {
+  if (i.gig_expenses && i.gig_expenses.length > 0)
+    return i.gig_expenses.reduce((s, e) => s + (e.actual ?? e.planned ?? 0), 0);
+  return i.fixed_show_expenses ?? 0;
+}
+
 /*
  * A5: there is NO fabricated F&B default. F&B contribution per head is sourced
  * per-tenant (gross avg check × margin rate) and passed in on
@@ -112,11 +139,27 @@ const promoterShare = (i: ShowInputs) =>
   i.backend_promoter_share ??
   (i.backend_artist_share != null ? 1 - i.backend_artist_share : 0.8);
 
-/** Bonus paid to the artist at a given attendance (additive per tier crossed). */
-function bonusAtAttendance(attendance: number, tiers: BonusTier[]): number {
-  return tiers
-    .filter((t) => attendance > t.from_attendance)
-    .reduce((sum, t) => sum + (t.bonus_paid ?? 0), 0);
+/**
+ * Bonus paid at a given tickets-sold count. Thresholds, not ranges. The venue
+ * keys bonuses on tickets SOLD as flat step thresholds ("@500 -> $500"), and Rod
+ * uses tickets-sold (not check-ins) as the attendance basis. Normalizes legacy
+ * range tiers so old saved shows still read.
+ */
+export function bonusAtTickets(
+  ticketsSold: number,
+  tiers: BonusTier[],
+  mode: BonusMode = 'incremental',
+): number {
+  const norm = (tiers ?? [])
+    .map((t) => ({
+      at: t.at_tickets ?? t.from_attendance ?? 0,
+      amt: t.bonus ?? t.bonus_paid ?? 0,
+    }))
+    .filter((t) => t.amt > 0);
+  const met = norm.filter((t) => ticketsSold >= t.at);
+  if (met.length === 0) return 0;
+  if (mode === 'only_one') return Math.max(...met.map((t) => t.amt));
+  return met.reduce((s, t) => s + t.amt, 0); // incremental
 }
 
 function artistCost(attendance: number, i: ShowInputs): number {
@@ -127,34 +170,44 @@ function artistCost(attendance: number, i: ShowInputs): number {
       return guarantee;
     case 'backend':
     case 'hybrid': {
-      const splitPoint = guarantee + i.fixed_show_expenses;
+      const splitPoint = guarantee + gigFixedExpenses(i);
       const above = Math.max(0, ticketRevenue - splitPoint);
       return guarantee + above * artistShare(i);
     }
     case 'bonus_escalator':
-      return guarantee + bonusAtAttendance(attendance, i.bonus_tiers ?? []);
+      // Attendance basis = tickets sold (Rod's rule); fall back to scenario figure.
+      return (
+        guarantee +
+        bonusAtTickets(
+          i.tickets_sold ?? attendance,
+          i.bonus_tiers ?? [],
+          i.bonus_mode ?? 'incremental',
+        )
+      );
     default:
       return guarantee;
   }
 }
 
-/** Per-tier marginal ticket value for bonus/escalator deals (§5.4). */
+/**
+ * Per-tier descriptor for threshold (step) bonuses. With ticket-sold thresholds
+ * the bonus is a discrete step at its `at_tickets`, not amortized over a band —
+ * so the marginal ticket value between thresholds is just avg_ticket_price.
+ * Normalizes legacy range tiers (from_attendance/bonus_paid) so old shows read.
+ */
 export function tierTMVs(
   i: ShowInputs,
-): { tier: BonusTier; tier_TMV: number }[] {
-  // Ignore degenerate zero-width tiers (e.g. a parsed "1000–1000" row).
-  const tiers = (i.bonus_tiers ?? []).filter(
-    (t) => t.to_attendance > t.from_attendance,
-  );
-  return tiers.map((t) => {
-    const size = Math.max(1, t.to_attendance - t.from_attendance);
-    const revenue = size * i.avg_ticket_price;
-    return { tier: t, tier_TMV: (revenue - (t.bonus_paid ?? 0)) / size };
-  });
+): { at_tickets: number; bonus: number; marginal_tmv: number }[] {
+  return (i.bonus_tiers ?? [])
+    .map((t) => ({
+      at_tickets: t.at_tickets ?? t.from_attendance ?? 0,
+      bonus: t.bonus ?? t.bonus_paid ?? 0,
+      marginal_tmv: i.avg_ticket_price,
+    }))
+    .filter((t) => t.bonus > 0);
 }
 
 export function calculateTMV(i: ShowInputs): number {
-  const fb = i.f_and_b_contribution_per_head ?? 0; // A5: absent => F&B excluded
   switch (i.offer_structure) {
     case 'straight_guarantee':
       return i.avg_ticket_price;
@@ -166,7 +219,7 @@ export function calculateTMV(i: ShowInputs): number {
       const totalIncr = Math.max(0, i.target_attendance - lower);
       if (totalIncr === 0) return i.avg_ticket_price;
       const splitTickets =
-        ((i.guarantee ?? 0) + i.fixed_show_expenses) / i.avg_ticket_price;
+        ((i.guarantee ?? 0) + gigFixedExpenses(i)) / i.avg_ticket_price;
       const preTickets = Math.max(
         0,
         Math.min(i.target_attendance, splitTickets) - lower,
@@ -176,28 +229,10 @@ export function calculateTMV(i: ShowInputs): number {
       const tmvPost = i.avg_ticket_price * promoterShare(i);
       return (preTickets * tmvPre + postTickets * tmvPost) / totalIncr;
     }
-    case 'bonus_escalator': {
-      const tts = tierTMVs(i);
-      const target = i.target_attendance;
-      let weighted = 0;
-      let totalAnalyzed = 0;
-      for (const { tier, tier_TMV } of tts) {
-        if (target <= tier.from_attendance) continue;
-        const reached =
-          Math.min(target, tier.to_attendance) - tier.from_attendance;
-        if (reached <= 0) continue;
-        weighted += reached * tier_TMV;
-        totalAnalyzed += reached;
-      }
-      // Any attendance below the first tier earns full ticket value.
-      const firstFrom = tts.length ? tts[0]!.tier.from_attendance : 0;
-      if (firstFrom > 0 && target > 0) {
-        const baseReached = Math.min(target, firstFrom);
-        weighted += baseReached * fb * 0 + baseReached * i.avg_ticket_price;
-        totalAnalyzed += baseReached;
-      }
-      return totalAnalyzed > 0 ? weighted / totalAnalyzed : i.avg_ticket_price;
-    }
+    case 'bonus_escalator':
+      // Threshold bonuses are discrete step costs, not amortized over a band —
+      // the marginal value of an incremental ticket is the full ticket price.
+      return i.avg_ticket_price;
     default:
       return i.avg_ticket_price;
   }
@@ -217,14 +252,15 @@ function modelScenario(
   const fee_revenue = attendance * netFee;
   const total_revenue = ticket_revenue + f_and_b_contribution + fee_revenue;
   const cost = artistCost(attendance, i);
-  const total_cost = cost + i.fixed_show_expenses + marketingBudget;
+  const gigFixed = gigFixedExpenses(i);
+  const total_cost = cost + gigFixed + marketingBudget;
   return {
     attendance,
     ticket_revenue,
     f_and_b_contribution,
     total_revenue,
     artist_cost: cost,
-    fixed_show_expenses: i.fixed_show_expenses,
+    fixed_show_expenses: gigFixed,
     marketing_budget: marketingBudget,
     total_cost,
     net_profit: total_revenue - total_cost,
@@ -235,20 +271,14 @@ function detectRiskFlags(i: ShowInputs, tmv: number, tmav: number): string[] {
   const flags: string[] = [];
   const fb = i.f_and_b_contribution_per_head ?? 0; // A5: absent => F&B excluded
 
-  if (i.offer_structure === 'bonus_escalator') {
-    for (const { tier, tier_TMV } of tierTMVs(i)) {
-      if (tier_TMV < 5)
-        flags.push(
-          `Bonus cliff: tier ${tier.from_attendance}–${tier.to_attendance} has marginal ticket value of only $${round2(tier_TMV)}.`,
-        );
-    }
-  }
+  // (No amortized "bonus cliff" with threshold bonuses — a step bonus does not
+  // dilute the marginal ticket value across a band the way a range tier did.)
   if (tmv < fb)
     flags.push(
       `F&B dependency: marginal ticket value ($${round2(tmv)}) is below F&B/head ($${fb}) — profit leans on food & beverage.`,
     );
   if (i.offer_structure === 'backend' || i.offer_structure === 'hybrid') {
-    const splitPoint = (i.guarantee ?? 0) + i.fixed_show_expenses;
+    const splitPoint = (i.guarantee ?? 0) + gigFixedExpenses(i);
     const expectedTicketRev = i.target_attendance * i.avg_ticket_price;
     if (splitPoint > expectedTicketRev * 0.9)
       flags.push(
@@ -263,9 +293,9 @@ function detectRiskFlags(i: ShowInputs, tmv: number, tmav: number): string[] {
     flags.push(
       `Attendance risk: target (${i.target_attendance}) is more than double the conservative case (${i.conservative_attendance}).`,
     );
-  if (!i.fixed_show_expenses || i.fixed_show_expenses === 0)
+  if (!gigFixedExpenses(i))
     flags.push(
-      'Expense uncertainty: fixed show expenses defaulted to $0 — model is incomplete.',
+      'Expense uncertainty: gig expenses total $0 — model is incomplete.',
     );
 
   return flags;
@@ -339,7 +369,7 @@ export function analyzeShow(inputs: ShowInputs): AnalysisResult {
   // in scope — no new economic assumptions. Round UP: a partial person doesn't
   // cover cost. Does NOT touch tmav/guardrails/mrmc/tiers below.
   const openCost = inputs.opening_cost ?? 0;
-  const gigFixed = (inputs.guarantee ?? 0) + inputs.fixed_show_expenses;
+  const gigFixed = (inputs.guarantee ?? 0) + gigFixedExpenses(inputs);
 
   // #1 — F&B margin alone covers the cost of opening the doors (Bart's ~101).
   const breakeven_fb_only = fb > 0 ? Math.ceil(openCost / fb) : null;

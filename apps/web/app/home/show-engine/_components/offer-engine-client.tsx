@@ -17,7 +17,9 @@ import {
 } from '../_lib/offer-actions';
 import {
   type AnalysisResult,
+  type BonusMode,
   type BonusTier,
+  type GigExpense,
   type OfferStructure,
   type ShowInputs,
   type TicketTier,
@@ -52,7 +54,6 @@ type FormState = {
   offer_structure: OfferStructure;
   guarantee: string;
   backend_promoter_share: string;
-  fixed_show_expenses: string;
   opening_cost: string;
   conservative_attendance: string;
   target_attendance: string;
@@ -70,7 +71,6 @@ const DEFAULTS: FormState = {
   offer_structure: 'straight_guarantee',
   guarantee: '5000',
   backend_promoter_share: '0.8',
-  fixed_show_expenses: '',
   opening_cost: '',
   conservative_attendance: '400',
   target_attendance: '700',
@@ -96,8 +96,11 @@ export function OfferEngineClient({
       ? fbAvgCheckPerHead * fbMarginRate
       : undefined;
   const [tiers, setTiers] = useState<BonusTier[]>([
-    { from_attendance: 0, to_attendance: 500, bonus_paid: 0 },
-    { from_attendance: 500, to_attendance: 750, bonus_paid: 1000 },
+    { at_tickets: 500, bonus: 500 },
+  ]);
+  const [bonusMode, setBonusMode] = useState<BonusMode>('incremental');
+  const [gigExpenses, setGigExpenses] = useState<GigExpense[]>([
+    { label: '', planned: 0 },
   ]);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [walkup, setWalkup] = useState<WalkupResult | null>(null);
@@ -169,9 +172,19 @@ export function OfferEngineClient({
       offer_structure: f.offer_structure,
       guarantee: num(f.guarantee, 0),
       backend_promoter_share: num(f.backend_promoter_share),
-      fixed_show_expenses: num(f.fixed_show_expenses, 0) ?? 0,
+      // A3: itemized gig expenses derive the gig fixed cost; keep
+      // fixed_show_expenses populated (their sum) for the legacy field + reload.
+      gig_expenses: gigExpenses.filter(
+        (e) => e.label.trim() !== '' || e.planned || e.actual != null,
+      ),
+      fixed_show_expenses: gigExpenses.reduce(
+        (s, e) => s + (e.actual ?? e.planned ?? 0),
+        0,
+      ),
       opening_cost: num(f.opening_cost, 0),
       bonus_tiers: f.offer_structure === 'bonus_escalator' ? tiers : undefined,
+      bonus_mode:
+        f.offer_structure === 'bonus_escalator' ? bonusMode : undefined,
       conservative_attendance: Number(f.conservative_attendance),
       target_attendance: Number(f.target_attendance),
       sellout_attendance: Number(f.sellout_attendance),
@@ -246,8 +259,6 @@ export function OfferEngineClient({
           guarantee: x.guarantee?.toString() ?? p.guarantee,
           backend_promoter_share:
             x.backend_promoter_share?.toString() ?? p.backend_promoter_share,
-          fixed_show_expenses:
-            x.fixed_show_expenses?.toString() ?? p.fixed_show_expenses,
           conservative_attendance:
             x.conservative_attendance?.toString() ?? p.conservative_attendance,
           target_attendance:
@@ -255,7 +266,20 @@ export function OfferEngineClient({
           sellout_attendance:
             x.sellout_attendance?.toString() ?? p.sellout_attendance,
         }));
-        if (x.bonus_tiers?.length) setTiers(x.bonus_tiers);
+        if (x.bonus_tiers?.length)
+          setTiers(
+            x.bonus_tiers.map((t) => ({
+              at_tickets: t.at_tickets ?? t.from_attendance ?? 0,
+              bonus: t.bonus ?? t.bonus_paid ?? 0,
+            })),
+          );
+        if (x.fixed_show_expenses != null)
+          setGigExpenses([
+            {
+              label: 'Fixed expenses',
+              planned: Number(x.fixed_show_expenses),
+            },
+          ]);
         if (x.avg_ticket_price != null) {
           setTickets((p) => {
             const first = p[0] ?? {
@@ -290,7 +314,6 @@ export function OfferEngineClient({
       offer_structure: i.offer_structure,
       guarantee: String(i.guarantee ?? ''),
       backend_promoter_share: String(i.backend_promoter_share ?? ''),
-      fixed_show_expenses: String(i.fixed_show_expenses ?? ''),
       opening_cost: i.opening_cost != null ? String(i.opening_cost) : '',
       conservative_attendance: String(i.conservative_attendance ?? ''),
       target_attendance: String(i.target_attendance ?? ''),
@@ -300,7 +323,15 @@ export function OfferEngineClient({
       days_remaining: String(i.days_remaining ?? ''),
       historical_cpa: i.historical_cpa != null ? String(i.historical_cpa) : '',
     });
-    if (i.bonus_tiers) setTiers(i.bonus_tiers);
+    if (i.bonus_tiers)
+      setTiers(
+        i.bonus_tiers.map((t) => ({
+          at_tickets: t.at_tickets ?? t.from_attendance ?? 0,
+          bonus: t.bonus ?? t.bonus_paid ?? 0,
+        })),
+      );
+    if (i.bonus_mode) setBonusMode(i.bonus_mode);
+    if (i.gig_expenses?.length) setGigExpenses(i.gig_expenses);
     // Rebuild the tier UI from the persisted tiers (source of truth). Fall back to
     // a single GA tier only for OLD saves made before tiers were persisted.
     if (i.ticket_tiers && i.ticket_tiers.length) {
@@ -412,12 +443,99 @@ export function OfferEngineClient({
               on={(x) => set('backend_promoter_share', x)}
             />
           ) : null}
-          <Field
-            label={'Fixed expenses ($)'}
-            v={f.fixed_show_expenses}
-            on={(x) => set('fixed_show_expenses', x)}
-            placeholder={'0 = incomplete'}
-          />
+          <div className={'col-span-2 md:col-span-3'}>
+            <p className={'text-muted-foreground mb-1 text-xs'}>
+              Gig expenses (itemized) — label / planned / actual
+            </p>
+            {gigExpenses.map((e, i) => (
+              <div key={i} className={'mb-1 flex flex-wrap items-center gap-2'}>
+                <input
+                  value={e.label}
+                  placeholder={'Security, LD, Catering…'}
+                  onChange={(ev) =>
+                    setGigExpenses((p) =>
+                      p.map((x, j) =>
+                        j === i ? { ...x, label: ev.target.value } : x,
+                      ),
+                    )
+                  }
+                  className={
+                    'border-input bg-background h-8 w-40 rounded-md border px-2 text-sm'
+                  }
+                />
+                <input
+                  type={'number'}
+                  value={e.planned}
+                  placeholder={'planned'}
+                  onChange={(ev) =>
+                    setGigExpenses((p) =>
+                      p.map((x, j) =>
+                        j === i
+                          ? { ...x, planned: Number(ev.target.value) }
+                          : x,
+                      ),
+                    )
+                  }
+                  className={
+                    'border-input bg-background h-8 w-24 rounded-md border px-2 text-sm'
+                  }
+                />
+                <input
+                  type={'number'}
+                  value={e.actual ?? ''}
+                  placeholder={'actual'}
+                  onChange={(ev) =>
+                    setGigExpenses((p) =>
+                      p.map((x, j) =>
+                        j === i
+                          ? {
+                              ...x,
+                              actual:
+                                ev.target.value === ''
+                                  ? undefined
+                                  : Number(ev.target.value),
+                            }
+                          : x,
+                      ),
+                    )
+                  }
+                  className={
+                    'border-input bg-background h-8 w-24 rounded-md border px-2 text-sm'
+                  }
+                />
+                <button
+                  className={'text-muted-foreground text-xs'}
+                  onClick={() =>
+                    setGigExpenses((p) => p.filter((_, j) => j !== i))
+                  }
+                >
+                  remove
+                </button>
+              </div>
+            ))}
+            <div className={'mt-1 flex items-center gap-3'}>
+              <button
+                className={'text-primary text-xs'}
+                onClick={() =>
+                  setGigExpenses((p) => [...p, { label: '', planned: 0 }])
+                }
+              >
+                + add expense
+              </button>
+              <span className={'text-muted-foreground text-xs'}>
+                Total{' '}
+                {dollars(
+                  gigExpenses.reduce(
+                    (s, e) => s + (e.actual ?? e.planned ?? 0),
+                    0,
+                  ),
+                )}
+              </span>
+            </div>
+            <p className={'text-muted-foreground mt-1 text-[11px]'}>
+              Marketing is set by the ad engine, not entered here.
+            </p>
+          </div>
           <Field
             label={'Opening cost (per show)'}
             v={f.opening_cost}
@@ -637,21 +755,39 @@ export function OfferEngineClient({
           {f.offer_structure === 'bonus_escalator' ? (
             <div className={'col-span-2 md:col-span-3'}>
               <p className={'text-muted-foreground mb-1 text-xs'}>
-                Bonus tiers (from / to / bonus $)
+                Bonus at tickets sold (threshold / bonus $)
               </p>
+              <div className={'mb-2 flex flex-wrap items-center gap-3 text-xs'}>
+                <label className={'flex items-center gap-1'}>
+                  <input
+                    type={'radio'}
+                    name={'bonus_mode'}
+                    checked={bonusMode === 'incremental'}
+                    onChange={() => setBonusMode('incremental')}
+                  />
+                  Incremental (sum every threshold met)
+                </label>
+                <label className={'flex items-center gap-1'}>
+                  <input
+                    type={'radio'}
+                    name={'bonus_mode'}
+                    checked={bonusMode === 'only_one'}
+                    onChange={() => setBonusMode('only_one')}
+                  />
+                  Only one (highest threshold met)
+                </label>
+              </div>
               {tiers.map((t, i) => (
-                <div key={i} className={'mb-1 flex gap-2'}>
+                <div key={i} className={'mb-1 flex items-center gap-2'}>
+                  <span className={'text-muted-foreground text-xs'}>@</span>
                   <TierInput
-                    v={t.from_attendance}
-                    on={(n) => updateTier(setTiers, i, 'from_attendance', n)}
+                    v={t.at_tickets}
+                    on={(n) => updateTier(setTiers, i, 'at_tickets', n)}
                   />
+                  <span className={'text-muted-foreground text-xs'}>→ $</span>
                   <TierInput
-                    v={t.to_attendance}
-                    on={(n) => updateTier(setTiers, i, 'to_attendance', n)}
-                  />
-                  <TierInput
-                    v={t.bonus_paid}
-                    on={(n) => updateTier(setTiers, i, 'bonus_paid', n)}
+                    v={t.bonus}
+                    on={(n) => updateTier(setTiers, i, 'bonus', n)}
                   />
                   <button
                     className={'text-muted-foreground text-xs'}
@@ -664,10 +800,7 @@ export function OfferEngineClient({
               <button
                 className={'text-primary text-xs'}
                 onClick={() =>
-                  setTiers((p) => [
-                    ...p,
-                    { from_attendance: 0, to_attendance: 0, bonus_paid: 0 },
-                  ])
+                  setTiers((p) => [...p, { at_tickets: 0, bonus: 0 }])
                 }
               >
                 + add tier

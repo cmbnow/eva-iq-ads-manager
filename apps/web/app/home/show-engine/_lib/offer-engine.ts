@@ -94,8 +94,13 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * Used only for budgeting a show BEFORE it happens. Post-event measurement must
  * use ACTUAL F&B from real sales — never substitute this assumption into a
  * profit verdict. Assumption for planning, actuals for measuring.
+ *
+ * This is a MARGIN figure, not a sales figure:
+ *   = Bart's 2025 avg guest check $25 × 71% weighted gross F&B margin = $17.75.
+ * Conservative (per-check, campus-wide; event-space per-head runs higher);
+ * trued up per-tenant once Toast/QBO feed live per-head data.
  */
-export const DEFAULT_FB_PER_HEAD = 32;
+export const DEFAULT_FB_PER_HEAD = 17.75;
 const artistShare = (i: ShowInputs) =>
   i.backend_artist_share ??
   (i.backend_promoter_share != null ? 1 - i.backend_promoter_share : 0.2);
@@ -158,7 +163,10 @@ export function calculateTMV(i: ShowInputs): number {
       if (totalIncr === 0) return i.avg_ticket_price;
       const splitTickets =
         ((i.guarantee ?? 0) + i.fixed_show_expenses) / i.avg_ticket_price;
-      const preTickets = Math.max(0, Math.min(i.target_attendance, splitTickets) - lower);
+      const preTickets = Math.max(
+        0,
+        Math.min(i.target_attendance, splitTickets) - lower,
+      );
       const postTickets = Math.max(0, totalIncr - preTickets);
       const tmvPre = i.avg_ticket_price;
       const tmvPost = i.avg_ticket_price * promoterShare(i);
@@ -171,7 +179,8 @@ export function calculateTMV(i: ShowInputs): number {
       let totalAnalyzed = 0;
       for (const { tier, tier_TMV } of tts) {
         if (target <= tier.from_attendance) continue;
-        const reached = Math.min(target, tier.to_attendance) - tier.from_attendance;
+        const reached =
+          Math.min(target, tier.to_attendance) - tier.from_attendance;
         if (reached <= 0) continue;
         weighted += reached * tier_TMV;
         totalAnalyzed += reached;
@@ -251,7 +260,9 @@ function detectRiskFlags(i: ShowInputs, tmv: number, tmav: number): string[] {
       `Attendance risk: target (${i.target_attendance}) is more than double the conservative case (${i.conservative_attendance}).`,
     );
   if (!i.fixed_show_expenses || i.fixed_show_expenses === 0)
-    flags.push('Expense uncertainty: fixed show expenses defaulted to $0 — model is incomplete.');
+    flags.push(
+      'Expense uncertainty: fixed show expenses defaulted to $0 — model is incomplete.',
+    );
 
   return flags;
 }
@@ -271,15 +282,18 @@ function calculateDealScore(
   const profitConservative = conservative.net_profit >= 0;
   const profitTarget = target.net_profit >= 0;
   const profitSellout = sellout.net_profit >= 0;
-  const cpaRoom =
-    i.historical_cpa == null || i.historical_cpa <= 0.75 * tmav;
+  const cpaRoom = i.historical_cpa == null || i.historical_cpa <= 0.75 * tmav;
 
-  if (profitConservative && profitTarget && !fbDependent && !bonusCliff && cpaRoom)
+  if (
+    profitConservative &&
+    profitTarget &&
+    !fbDependent &&
+    !bonusCliff &&
+    cpaRoom
+  )
     return 'A';
-  if (profitTarget && !fbDependent && !bonusCliff)
-    return 'B';
-  if (profitTarget || profitSellout)
-    return 'C';
+  if (profitTarget && !fbDependent && !bonusCliff) return 'B';
+  if (profitTarget || profitSellout) return 'C';
   return 'D';
 }
 

@@ -1,10 +1,48 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DEFAULT_FB_PER_HEAD,
   type ShowInputs,
   analyzeShow,
   blendTicketPricing,
 } from './offer-engine';
+
+/*
+ * F&B planning default is a sourced MARGIN figure (Spec A1):
+ *   $25 avg check (Bart, 2025 Toast) × 71% weighted gross margin = $17.75/head.
+ * A fresh run with no F&B override must budget off $17.75, not the old sales-
+ * shaped $32. It enters TMAV straight as a per-attendee margin dollar amount.
+ */
+describe('F&B planning default — sourced $17.75 margin/head', () => {
+  it('DEFAULT_FB_PER_HEAD is 17.75', () => {
+    expect(DEFAULT_FB_PER_HEAD).toBe(17.75);
+  });
+
+  it('a fresh run with no F&B override uses $17.75 in TMAV (not $32)', () => {
+    const inputs: ShowInputs = {
+      venue_capacity: 1000,
+      avg_ticket_price: 25,
+      offer_structure: 'straight_guarantee',
+      guarantee: 5000,
+      fixed_show_expenses: 1000,
+      conservative_attendance: 400,
+      target_attendance: 700,
+      sellout_attendance: 1000,
+      days_remaining: 45,
+      // no f_and_b_contribution_per_head -> falls back to the default
+    };
+
+    const r = analyzeShow(inputs);
+
+    // Added straight in as a margin dollar amount: TMAV = TMV(25) + F&B(17.75).
+    expect(r.fb_per_head).toBe(17.75);
+    expect(r.tmav).toBeCloseTo(25 + 17.75, 10); // 42.75
+    expect(r.tmav).not.toBeCloseTo(25 + 32, 10); // the old $57 is gone
+    // CPA guardrails recompute off the lower TMAV.
+    expect(r.cpa_guardrails.early).toBeCloseTo(0.6 * r.tmav, 10);
+    expect(r.cpa_guardrails.ceiling).toBeCloseTo(r.tmav, 10);
+  });
+});
 
 /*
  * Fee precision guard (cleanup batch). A $0-fee tier still incurs the processor

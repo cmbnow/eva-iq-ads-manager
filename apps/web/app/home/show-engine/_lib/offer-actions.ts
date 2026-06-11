@@ -170,3 +170,29 @@ export async function getWalkupForShow(input: {
     sellout_attendance: input.sellout_attendance,
   });
 }
+
+/**
+ * Live tickets sold to date for a show, from the D2 TicketTailor layer
+ * (ticket_tailor_events.total_issued), matched to a TT event by show date — the
+ * same association getWalkupForShow uses (there's no show↔TT link table yet).
+ * Returns null when there's no tenant, no date, or no matching TT event, so the
+ * caller falls back to the flat planning TMAV. Read-only; no schema change.
+ */
+export async function getTicketsSoldForShow(
+  showDate: string | null,
+): Promise<number | null> {
+  if (!showDate) return null;
+  const { supabase, tenant } = await getTenantContext();
+  if (!tenant) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any;
+  const { data } = await db
+    .from('ticket_tailor_events')
+    .select('total_issued, event_date')
+    .eq('tenant_id', tenant.id)
+    .eq('event_date', showDate)
+    .limit(1)
+    .maybeSingle();
+  if (!data || data.total_issued == null) return null;
+  return Number(data.total_issued);
+}

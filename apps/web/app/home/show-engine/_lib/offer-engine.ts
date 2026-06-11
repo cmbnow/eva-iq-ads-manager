@@ -321,6 +321,37 @@ export function marginalVenueValueAtTickets(
   }
 }
 
+/**
+ * F&B contribution per head used in TMAV. A5: absent basis => excluded (0), never
+ * assumed. Single source so result.tmav and marginalTmavAtTickets stay identical.
+ */
+function fbPerHead(i: ShowInputs): number {
+  return i.f_and_b_contribution_per_head ?? 0;
+}
+
+/** Venue-kept booking fee per head (net of processor); rides into TMAV like F&B. */
+function netFeePerHead(i: ShowInputs): number {
+  return i.net_fee_per_head ?? 0;
+}
+
+/**
+ * Zone-aware TMAV at a ticket count — the value the LIVE scaling decision should
+ * compare CPA against, instead of the flat planning result.tmav. Same F&B/head and
+ * net-fee/head terms as result.tmav; only the ticket-side term changes with zone
+ * (full price below recoup/split, venue-keep share above, negative step at a bonus
+ * tier). Below recoup this is >= the flat planning TMAV; past recoup it steps down.
+ */
+export function marginalTmavAtTickets(
+  currentTicketsSold: number,
+  i: ShowInputs,
+): number {
+  return (
+    marginalVenueValueAtTickets(currentTicketsSold, i) +
+    fbPerHead(i) +
+    netFeePerHead(i)
+  );
+}
+
 function modelScenario(
   attendance: number,
   i: ShowInputs,
@@ -443,8 +474,8 @@ function buildExecutiveRecommendation(
 export function analyzeShow(inputs: ShowInputs): AnalysisResult {
   // A5: F&B basis comes from tenant config (passed in). Absent => exclude + flag.
   const fbProvided = inputs.f_and_b_contribution_per_head != null;
-  const fb = fbProvided ? inputs.f_and_b_contribution_per_head! : 0;
-  const netFee = inputs.net_fee_per_head ?? 0;
+  const fb = fbPerHead(inputs);
+  const netFee = netFeePerHead(inputs);
   const tmv = calculateTMV(inputs);
   const tmav = tmv + fb + netFee; // booking fee adds to TMAV, parallel to F&B
 

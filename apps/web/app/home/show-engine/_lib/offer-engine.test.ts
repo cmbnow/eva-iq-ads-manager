@@ -7,6 +7,7 @@ import {
   blendTicketPricing,
   bonusAtTickets,
   gigFixedExpenses,
+  marginalTmavAtTickets,
   marginalVenueValueAtTickets,
 } from './offer-engine';
 
@@ -391,5 +392,64 @@ describe('H2 — promoter_profit in split + vs_deal / pure_door', () => {
     );
     // no tier at 101 -> full price between tiers
     expect(marginalVenueValueAtTickets(100, bonus)).toBeCloseTo(PRICE, 10);
+  });
+});
+
+/*
+ * Wire-into-scaling — marginalTmavAtTickets is the zone-aware floor the live
+ * decision compares CPA against. It reuses the SAME F&B/head and net-fee/head
+ * terms as result.tmav; only the ticket-side term changes with zone. Backend
+ * split here = g(2000) + E(1120) + P(156) = 3276 -> ~96.6 tickets at $33.90.
+ */
+describe('marginalTmavAtTickets — zone-aware floor vs flat planning TMAV', () => {
+  const PRICE = 33.9;
+  const backend: ShowInputs = {
+    venue_capacity: 1000,
+    avg_ticket_price: PRICE,
+    offer_structure: 'backend',
+    guarantee: 2000,
+    promoter_profit: 156,
+    backend_artist_share: 0.7, // vKeep 0.30
+    fixed_show_expenses: 1120,
+    conservative_attendance: 50, // band 50->200 straddles the ~96.6-ticket split
+    target_attendance: 200,
+    sellout_attendance: 1000,
+    days_remaining: 45,
+  };
+
+  it('past the split point: marginal floor is BELOW the flat planning TMAV', () => {
+    const flat = analyzeShow(backend).tmav;
+    const zone = marginalTmavAtTickets(500, backend); // R 16950 > split -> venue-keep
+    expect(zone).toBeLessThan(flat);
+    expect(zone).toBeCloseTo(PRICE * 0.3, 10); // no F&B/fee here -> 10.17
+  });
+
+  it('below the split point: marginal floor is the full price (>= flat planning TMAV)', () => {
+    const flat = analyzeShow(backend).tmav;
+    const zone = marginalTmavAtTickets(10, backend); // R 339 < split -> full face
+    expect(zone).toBeCloseTo(PRICE, 10);
+    expect(zone).toBeGreaterThanOrEqual(flat);
+  });
+
+  it('reuses the same F&B + net-fee terms as result.tmav', () => {
+    // straight_guarantee marginal = full price, so marginalTmav must equal result.tmav.
+    const sg: ShowInputs = {
+      ...backend,
+      offer_structure: 'straight_guarantee',
+      f_and_b_contribution_per_head: 12,
+      net_fee_per_head: -1.025,
+    };
+    expect(marginalTmavAtTickets(10, sg)).toBeCloseTo(analyzeShow(sg).tmav, 10);
+  });
+
+  it('passes the bonus-tier negative spike through (price − bonus, plus F&B/fee)', () => {
+    const bonus: ShowInputs = {
+      ...backend,
+      offer_structure: 'bonus_escalator',
+      bonus_tiers: [{ at_tickets: 500, bonus: 500 }],
+      f_and_b_contribution_per_head: 12,
+    };
+    // one ticket before the tier: (price − bonus) + fb = (33.9 − 500) + 12
+    expect(marginalTmavAtTickets(499, bonus)).toBeCloseTo(PRICE - 500 + 12, 10);
   });
 });

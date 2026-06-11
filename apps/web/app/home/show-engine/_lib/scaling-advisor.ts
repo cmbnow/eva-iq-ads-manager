@@ -31,8 +31,20 @@ export function decideScaling(p: {
   liveCostPerIC?: number | null;
   estimatedICtoPurchaseRate?: number | null; // e.g. 0.4
   frequency?: number | null;
+  // True when `tmav` is the zone-aware marginal value at the show's current ticket
+  // count (marginalTmavAtTickets). False/undefined = the flat planning-average TMAV.
+  tmavIsZoneAware?: boolean;
 }): ScalingDecision {
   const caveats: string[] = [];
+  // Name the floor honestly in the reason strings + warn when it's the flat
+  // planning average (no live ticket count), which can't see a recoup/bonus step.
+  const floorLabel = p.tmavIsZoneAware
+    ? 'marginal value at current sales'
+    : 'TMAV';
+  if (p.tmavIsZoneAware === false)
+    caveats.push(
+      'Floor is the planning-average TMAV, not the live zone value — no current ticket count was available, so a recoup/bonus-tier step-down may not be reflected. Connect/refresh TicketTailor sales for a true floor.',
+    );
   if (
     p.frequency != null &&
     p.frequency >= FREQ_WARNING &&
@@ -84,7 +96,7 @@ export function decideScaling(p: {
         zone: 'aggressive',
         budgetChangePct: 27.5,
         action: budgetMove('25–30%'),
-        reason: `CPA${tag} $${effectiveCPA.toFixed(2)} is ${(ratio * 100).toFixed(0)}% of TMAV ($${p.tmav.toFixed(2)}) — well under target.`,
+        reason: `CPA${tag} $${effectiveCPA.toFixed(2)} is ${(ratio * 100).toFixed(0)}% of ${floorLabel} ($${p.tmav.toFixed(2)}) — well under target.`,
         caveats,
       };
     else if (ratio < 0.75)
@@ -92,7 +104,7 @@ export function decideScaling(p: {
         zone: 'scale',
         budgetChangePct: 15,
         action: budgetMove('15%'),
-        reason: `CPA${tag} $${effectiveCPA.toFixed(2)} is ${(ratio * 100).toFixed(0)}% of TMAV — healthy.`,
+        reason: `CPA${tag} $${effectiveCPA.toFixed(2)} is ${(ratio * 100).toFixed(0)}% of ${floorLabel} — healthy.`,
         caveats,
       };
     else if (ratio < 0.9)
@@ -100,7 +112,7 @@ export function decideScaling(p: {
         zone: 'hold',
         budgetChangePct: null,
         action: 'Hold budget. Optimize creative/audience; do not scale.',
-        reason: `CPA${tag} $${effectiveCPA.toFixed(2)} is ${(ratio * 100).toFixed(0)}% of TMAV — mid zone.`,
+        reason: `CPA${tag} $${effectiveCPA.toFixed(2)} is ${(ratio * 100).toFixed(0)}% of ${floorLabel} — mid zone.`,
         caveats,
       };
     else if (ratio < 1.0)
@@ -108,7 +120,7 @@ export function decideScaling(p: {
         zone: 'late',
         budgetChangePct: null,
         action: 'Hold tight, no scaling. Watch closely — approaching the ceiling.',
-        reason: `CPA${tag} $${effectiveCPA.toFixed(2)} is ${(ratio * 100).toFixed(0)}% of TMAV — late zone.`,
+        reason: `CPA${tag} $${effectiveCPA.toFixed(2)} is ${(ratio * 100).toFixed(0)}% of ${floorLabel} — late zone.`,
         caveats,
       };
     else
@@ -116,7 +128,7 @@ export function decideScaling(p: {
         zone: 'danger',
         budgetChangePct: null,
         action: 'Reduce or pause spend. Each new attendee costs ≥ their marginal value.',
-        reason: `CPA${tag} $${effectiveCPA.toFixed(2)} ≥ TMAV ($${p.tmav.toFixed(2)}) — unprofitable on the margin.`,
+        reason: `CPA${tag} $${effectiveCPA.toFixed(2)} ≥ ${floorLabel} ($${p.tmav.toFixed(2)}) — unprofitable on the margin.`,
         caveats,
       };
   }

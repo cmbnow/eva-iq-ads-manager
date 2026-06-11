@@ -419,7 +419,7 @@ function detectRiskFlags(i: ShowInputs, tmv: number, tmav: number): string[] {
   }
   if (i.historical_cpa != null && i.historical_cpa >= tmav)
     flags.push(
-      `Marketing ceiling: historical CPA ($${round2(i.historical_cpa)}) is at/above TMAV ($${round2(tmav)}) — paid acquisition is unprofitable at past efficiency.`,
+      `Marketing ceiling: historical CPA ($${round2(i.historical_cpa)}) is at/above contribution per attendee ($${round2(tmav)}) — paid acquisition is unprofitable at past efficiency.`,
     );
   if (i.target_attendance > i.conservative_attendance * 2)
     flags.push(
@@ -474,7 +474,7 @@ function buildExecutiveRecommendation(
   const t3 = Math.round(tiers[2]!.total_budget);
 
   if (i.historical_cpa != null && i.historical_cpa >= tmav)
-    return `Historical CPA ($${round2(i.historical_cpa)}) is at/above TMAV ($${round2(tmav)}). Do NOT scale paid spend at past efficiency — fix tracking/creative first or pass.`;
+    return `Historical CPA ($${round2(i.historical_cpa)}) is at/above contribution per attendee ($${round2(tmav)}). Do NOT scale paid spend at past efficiency — fix tracking/creative first or pass.`;
 
   switch (score) {
     case 'A':

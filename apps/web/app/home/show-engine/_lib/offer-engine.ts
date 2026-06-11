@@ -89,6 +89,7 @@ export interface ScenarioResult {
 
 export interface AnalysisResult {
   tmv: number;
+  // tmav = Contribution per attendee: ticket marginal + F&B/head + net fee, BEFORE Opening Cost.
   tmav: number;
   fb_per_head: number;
   /** True when no F&B basis was supplied — F&B was excluded (treated as 0), not assumed. */
@@ -121,8 +122,9 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
  * Gig fixed cost (artist-deal only). Sum of itemized gig_expenses (actual ??
- * planned) when present, else the legacy single fixed_show_expenses. The nut
- * (opening_cost) and F&B are layered SEPARATELY and are not included here.
+ * planned) when present, else the legacy single fixed_show_expenses. The
+ * per-show Opening Cost (opening_cost; informally "the nut") and F&B are layered
+ * SEPARATELY and are not included here.
  * Marketing is owned by the ad engine's marketingBudget — never entered here.
  */
 export function gigFixedExpenses(i: ShowInputs): number {

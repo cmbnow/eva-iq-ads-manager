@@ -99,7 +99,7 @@ ${
     ad.show
       ? `\nPROFITABILITY (CALCULATED budget — use this; do NOT ask the owner for a budget):
 A profitability run is linked: "${ad.show.name}" (deal score ${ad.show.dealScore}).
-- TMAV (true marginal value per attendee): $${ad.show.tmav.toFixed(0)}.
+- Contribution per attendee (before Opening Cost): $${ad.show.tmav.toFixed(0)}.
 - Hold cost-per-purchase under these CPA targets: early $${ad.show.cpaEarly.toFixed(0)}, mid $${ad.show.cpaMid.toFixed(0)}, late $${ad.show.cpaLate.toFixed(0)}. Never exceed the late target.
 - Max rational marketing spend for this show (MRMC): $${ad.show.mrmc.toFixed(0)}.
 - RECOMMENDED total budget for the ${ad.show.daysRemaining}-day flight: Core $${ad.show.coreTotal.toFixed(0)} (~$${ad.show.coreDaily.toFixed(0)}/day), Aggressive $${ad.show.aggressiveTotal.toFixed(0)}, Defense $${ad.show.defenseTotal.toFixed(0)}.

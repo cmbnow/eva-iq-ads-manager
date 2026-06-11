@@ -7,6 +7,7 @@ import {
   blendTicketPricing,
   bonusAtTickets,
   gigFixedExpenses,
+  marginalVenueValueAtTickets,
 } from './offer-engine';
 
 /*
@@ -280,5 +281,115 @@ describe('A3 — gig model: threshold bonuses + itemized expenses (Fozzy)', () =
     expect(r.scenarios.target.artist_cost).toBe(7000); // guarantee + 0
     // itemized expenses flow into the scenario's fixed cost.
     expect(r.scenarios.target.fixed_show_expenses).toBe(2705);
+  });
+});
+
+/*
+ * H2 — deal-structure correctness (spec-H2-deal-structure-fixes.md). Every number
+ * traces to the two real Fireside Collective Gigwell sheets (PLUS and VS) at
+ * sellout R = $25,425, artist share 0.70 (venue keep 0.30). avg_ticket_price 33.9
+ * × sellout 750 reproduces R exactly (33.9 × 750 = 25425).
+ *
+ *   PLUS (backend):  split = g + E + P = 2000 + 1120 + 156 = 3276
+ *                    artist = 2000 + (25425 − 3276) × 0.70 = 17504.30
+ *   VS   (vs_deal):  split = E + P = 1820 + 191 = 2011  (guarantee NOT in split)
+ *                    artist = MAX(8000, (25425 − 2011) × 0.70) = 16389.80
+ */
+describe('H2 — promoter_profit in split + vs_deal / pure_door', () => {
+  const PRICE = 33.9;
+  const SELLOUT = 750; // 33.9 × 750 = 25425 = R at sellout
+
+  const plus: ShowInputs = {
+    venue_capacity: 1000,
+    avg_ticket_price: PRICE,
+    offer_structure: 'backend',
+    guarantee: 2000,
+    promoter_profit: 156, // P
+    backend_artist_share: 0.7, // Fireside aShare
+    fixed_show_expenses: 1120, // E
+    conservative_attendance: 300,
+    target_attendance: 600,
+    sellout_attendance: SELLOUT,
+    days_remaining: 45,
+  };
+
+  const vs: ShowInputs = {
+    ...plus,
+    offer_structure: 'vs_deal',
+    guarantee: 8000,
+    promoter_profit: 191, // P
+    fixed_show_expenses: 1820, // E
+  };
+
+  it('PENNY — PLUS artist_total = 17504.30 (split 3276.00)', () => {
+    const r = analyzeShow(plus);
+    expect(r.scenarios.sellout.artist_cost).toBeCloseTo(17504.3, 2);
+  });
+
+  it('PENNY — VS artist_total = 16389.80 (split 2011.00, guarantee discarded)', () => {
+    const r = analyzeShow(vs);
+    expect(r.scenarios.sellout.artist_cost).toBeCloseTo(16389.8, 2);
+  });
+
+  it('promoter_profit defaults to 0 — old backend deals are unchanged', () => {
+    const noP: ShowInputs = { ...plus };
+    delete noP.promoter_profit;
+    const r = analyzeShow(noP);
+    // split without P = 2000 + 1120 = 3120 -> 2000 + (25425 − 3120) × 0.7
+    expect(r.scenarios.sellout.artist_cost).toBeCloseTo(2000 + 22305 * 0.7, 2);
+  });
+
+  it('vs_deal: below crossover artist = guarantee exactly; above = share, guarantee discarded', () => {
+    const r = analyzeShow(vs);
+    // conservative R = 33.9 × 300 = 10170 < crossover 13439.57 -> guarantee wins
+    expect(r.scenarios.conservative.artist_cost).toBe(8000);
+    // sellout R = 25425 > crossover -> share wins, guarantee gone
+    expect(r.scenarios.sellout.artist_cost).toBeCloseTo(16389.8, 2);
+  });
+
+  it('pure_door with g=0 reduces to share-only (no guarantee floor)', () => {
+    const pure: ShowInputs = {
+      ...vs,
+      offer_structure: 'pure_door',
+      guarantee: 0,
+    };
+    const r = analyzeShow(pure);
+    // share only: (25425 − (1820 + 191)) × 0.70 = 23414 × 0.70 = 16389.80
+    expect(r.scenarios.sellout.artist_cost).toBeCloseTo(16389.8, 2);
+    // at zero draw there is no guarantee floor -> cost 0
+    const zero = analyzeShow({ ...pure, conservative_attendance: 0 });
+    expect(zero.scenarios.conservative.artist_cost).toBe(0);
+  });
+
+  it('marginalVenueValueAtTickets — zone-aware (below split full price, above × vKeep)', () => {
+    // backend (PLUS): split 3276, vKeep 0.30
+    expect(marginalVenueValueAtTickets(10, plus)).toBeCloseTo(PRICE, 10); // R 339 < 3276
+    expect(marginalVenueValueAtTickets(200, plus)).toBeCloseTo(PRICE * 0.3, 10); // R 6780 > 3276
+    // vs_deal: crossover (revenue) = 2011 + 8000/0.7 = 13439.57
+    expect(marginalVenueValueAtTickets(300, vs)).toBeCloseTo(PRICE, 10); // R 10170 < crossover
+    expect(marginalVenueValueAtTickets(500, vs)).toBeCloseTo(PRICE * 0.3, 10); // R 16950 > crossover
+    // pure_door: split = E + P = 2011
+    const pure: ShowInputs = {
+      ...vs,
+      offer_structure: 'pure_door',
+      guarantee: 0,
+    };
+    expect(marginalVenueValueAtTickets(10, pure)).toBeCloseTo(PRICE, 10); // R 339 < 2011
+    expect(marginalVenueValueAtTickets(300, pure)).toBeCloseTo(PRICE * 0.3, 10); // R 10170 > 2011
+  });
+
+  it('marginalVenueValueAtTickets — bonus_escalator steps down AT a tier crossing', () => {
+    const bonus: ShowInputs = {
+      ...plus,
+      offer_structure: 'bonus_escalator',
+      bonus_tiers: [{ at_tickets: 500, bonus: 500 }],
+    };
+    // next ticket (500) crosses the tier -> price − bonus
+    expect(marginalVenueValueAtTickets(499, bonus)).toBeCloseTo(
+      PRICE - 500,
+      10,
+    );
+    // no tier at 101 -> full price between tiers
+    expect(marginalVenueValueAtTickets(100, bonus)).toBeCloseTo(PRICE, 10);
   });
 });

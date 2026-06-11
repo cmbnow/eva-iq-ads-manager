@@ -53,6 +53,7 @@ type FormState = {
   avg_ticket_price: string;
   offer_structure: OfferStructure;
   guarantee: string;
+  promoter_profit: string;
   backend_promoter_share: string;
   opening_cost: string;
   conservative_attendance: string;
@@ -70,6 +71,7 @@ const DEFAULTS: FormState = {
   avg_ticket_price: '25',
   offer_structure: 'straight_guarantee',
   guarantee: '5000',
+  promoter_profit: '',
   backend_promoter_share: '0.8',
   opening_cost: '',
   conservative_attendance: '400',
@@ -171,6 +173,7 @@ export function OfferEngineClient({
       ticket_pricing_globals: pricingGlobals(),
       offer_structure: f.offer_structure,
       guarantee: num(f.guarantee, 0),
+      promoter_profit: num(f.promoter_profit, 0),
       backend_promoter_share: num(f.backend_promoter_share),
       // A3: itemized gig expenses derive the gig fixed cost; keep
       // fixed_show_expenses populated (their sum) for the legacy field + reload.
@@ -257,6 +260,7 @@ export function OfferEngineClient({
           offer_structure:
             (x.offer_structure as OfferStructure) ?? p.offer_structure,
           guarantee: x.guarantee?.toString() ?? p.guarantee,
+          promoter_profit: x.promoter_profit?.toString() ?? p.promoter_profit,
           backend_promoter_share:
             x.backend_promoter_share?.toString() ?? p.backend_promoter_share,
           conservative_attendance:
@@ -313,6 +317,8 @@ export function OfferEngineClient({
       avg_ticket_price: String(i.avg_ticket_price ?? ''),
       offer_structure: i.offer_structure,
       guarantee: String(i.guarantee ?? ''),
+      promoter_profit:
+        i.promoter_profit != null ? String(i.promoter_profit) : '',
       backend_promoter_share: String(i.backend_promoter_share ?? ''),
       opening_cost: i.opening_cost != null ? String(i.opening_cost) : '',
       conservative_attendance: String(i.conservative_attendance ?? ''),
@@ -429,6 +435,12 @@ export function OfferEngineClient({
               <option value={'backend'}>Backend</option>
               <option value={'hybrid'}>Hybrid</option>
               <option value={'bonus_escalator'}>Bonus / escalator</option>
+              <option value={'vs_deal'}>
+                Versus (greater of guarantee or split)
+              </option>
+              <option value={'pure_door'}>
+                Pure door (split, no guarantee)
+              </option>
             </select>
           </div>
           <Field
@@ -436,7 +448,20 @@ export function OfferEngineClient({
             v={f.guarantee}
             on={(x) => set('guarantee', x)}
           />
-          {f.offer_structure === 'backend' || f.offer_structure === 'hybrid' ? (
+          <Field
+            label={'Promoter profit ($)'}
+            v={f.promoter_profit}
+            on={(x) => set('promoter_profit', x)}
+            placeholder={'0'}
+            help={
+              'From the offer sheet. Sits in the split point with expenses ' +
+              '(and the guarantee, for backend/hybrid). Leave blank for $0.'
+            }
+          />
+          {f.offer_structure === 'backend' ||
+          f.offer_structure === 'hybrid' ||
+          f.offer_structure === 'vs_deal' ||
+          f.offer_structure === 'pure_door' ? (
             <Field
               label={'Promoter share (0–1)'}
               v={f.backend_promoter_share}

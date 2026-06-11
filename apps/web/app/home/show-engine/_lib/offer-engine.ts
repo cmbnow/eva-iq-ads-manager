@@ -321,6 +321,53 @@ export function marginalVenueValueAtTickets(
   }
 }
 
+/**
+ * F&B contribution per head used in TMAV. A5: absent basis => excluded (0), never
+ * assumed. Single source so result.tmav and marginalTmavAtTickets stay identical.
+ */
+function fbPerHead(i: ShowInputs): number {
+  return i.f_and_b_contribution_per_head ?? 0;
+}
+
+/** Venue-kept booking fee per head (net of processor); rides into TMAV like F&B. */
+function netFeePerHead(i: ShowInputs): number {
+  return i.net_fee_per_head ?? 0;
+}
+
+/**
+ * Zone-aware TMAV at a ticket count — the value the LIVE scaling decision should
+ * compare CPA against, instead of the flat planning result.tmav. Same F&B/head and
+ * net-fee/head terms as result.tmav; only the ticket-side term changes with zone
+ * (full price below recoup/split, venue-keep share above, negative step at a bonus
+ * tier). Below recoup this is >= the flat planning TMAV; past recoup it steps down.
+ */
+export function marginalTmavAtTickets(
+  currentTicketsSold: number,
+  i: ShowInputs,
+): number {
+  return (
+    marginalVenueValueAtTickets(currentTicketsSold, i) +
+    fbPerHead(i) +
+    netFeePerHead(i)
+  );
+}
+
+/**
+ * Live tickets sold for a show = the SUM of total_issued across its TicketTailor
+ * event rows. A single show splits into multiple rows by event_role (advance +
+ * day_of_sale), so summing — not taking one row — is what avoids undercounting.
+ * Returns null on no rows or a zero sum, so the caller falls back to the flat
+ * planning TMAV rather than trusting a false 0. (Pure helper, separated from the
+ * DB query in getTicketsSoldForShow so it's unit-testable without Supabase.)
+ */
+export function sumTicketsIssued(
+  rows: { total_issued: number | null }[] | null | undefined,
+): number | null {
+  if (!rows || rows.length === 0) return null;
+  const sum = rows.reduce((s, r) => s + Number(r.total_issued ?? 0), 0);
+  return sum === 0 ? null : sum;
+}
+
 function modelScenario(
   attendance: number,
   i: ShowInputs,
@@ -443,8 +490,8 @@ function buildExecutiveRecommendation(
 export function analyzeShow(inputs: ShowInputs): AnalysisResult {
   // A5: F&B basis comes from tenant config (passed in). Absent => exclude + flag.
   const fbProvided = inputs.f_and_b_contribution_per_head != null;
-  const fb = fbProvided ? inputs.f_and_b_contribution_per_head! : 0;
-  const netFee = inputs.net_fee_per_head ?? 0;
+  const fb = fbPerHead(inputs);
+  const netFee = netFeePerHead(inputs);
   const tmv = calculateTMV(inputs);
   const tmav = tmv + fb + netFee; // booking fee adds to TMAV, parallel to F&B
 

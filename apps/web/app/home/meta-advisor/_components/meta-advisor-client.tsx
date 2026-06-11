@@ -26,7 +26,8 @@ import {
   saveAndCompare,
 } from '../_lib/snapshots';
 import { ACCENT_2, MetricTile, PerfChart } from '../../_components/dashboard-ui';
-import { type SavedShow, listAnalyses } from '../../show-engine/_lib/offer-actions';
+import { type SavedShow, getTicketsSoldForShow, listAnalyses } from '../../show-engine/_lib/offer-actions';
+import { marginalTmavAtTickets } from '../../show-engine/_lib/offer-engine';
 import { decideScaling } from '../../show-engine/_lib/scaling-advisor';
 import { PostEventReport } from './post-event-report';
 
@@ -300,6 +301,9 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
   const [shows, setShows] = useState<SavedShow[]>([]);
   const [selectedShowId, setSelectedShowId] = useState('');
   const [icRate, setIcRate] = useState(''); // IC→purchase rate (%), optional
+  // D2: live tickets sold for the selected show (TicketTailor). null = no live count
+  // yet -> the scaling decision falls back to the flat planning TMAV (+ caveat).
+  const [currentTicketsSold, setCurrentTicketsSold] = useState<number | null>(null);
   const selectedShow = shows.find((s) => s.id === selectedShowId);
   const showCtx = selectedShow
     ? {
@@ -334,9 +338,21 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
       ? ad.spend / ad.results
       : null);
   const costPerPurchase = ad.costPerPurchase ?? ad.cpp;
+  // Zone-aware floor: value of the NEXT ticket at the show's current sales count
+  // (steps down past recoup / at a bonus tier), not the flat planning-average TMAV.
+  // Falls back to the flat TMAV when there's no live ticket count; the flag becomes
+  // a caveat in the decision so the basis is never silently misrepresented.
+  const tmavIsZoneAware = currentTicketsSold != null && selectedShow?.inputs != null;
+  const marginalTmav =
+    showCtx == null
+      ? undefined
+      : tmavIsZoneAware
+        ? marginalTmavAtTickets(currentTicketsSold!, selectedShow!.inputs)
+        : showCtx.tmav;
   const scaling = showCtx
     ? decideScaling({
-        tmav: showCtx.tmav,
+        tmav: marginalTmav ?? showCtx.tmav,
+        tmavIsZoneAware,
         optimizationMode,
         budgetStructure: ad.budgetStructure ?? 'ABO',
         liveCostPerPurchase: optimizationMode === 'purchase' ? costPerPurchase : null,
@@ -408,6 +424,18 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
     listAnalyses().then(setShows).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // D2: pull the selected show's live tickets-sold (matched to a TicketTailor event
+  // by show date). null on no match -> the scaling decision uses the flat TMAV.
+  useEffect(() => {
+    setCurrentTicketsSold(null);
+    const showDate = selectedShow?.showDate ?? null;
+    if (!showDate) return;
+    getTicketsSoldForShow(showDate)
+      .then(setCurrentTicketsSold)
+      .catch(() => setCurrentTicketsSold(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedShowId]);
 
   const showInit = useRef(false);
   useEffect(() => {
@@ -633,7 +661,15 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
         {scaling ? (
           <div className={'mt-2 rounded-md border p-3 text-xs'}>
             <div className={'flex items-center justify-between'}>
-              <span className={'font-semibold'}>Scaling decision (vs TMAV {money(showCtx!.tmav)})</span>
+              <span className={'font-semibold'}>
+                Scaling decision (vs{' '}
+                {tmavIsZoneAware ? 'marginal value' : 'TMAV'}{' '}
+                {money(marginalTmav ?? showCtx!.tmav)}
+                {tmavIsZoneAware
+                  ? ` at ${currentTicketsSold} tickets sold`
+                  : ' (planning avg)'}
+                )
+              </span>
               <Badge
                 variant={
                   scaling.zone === 'aggressive' || scaling.zone === 'scale'

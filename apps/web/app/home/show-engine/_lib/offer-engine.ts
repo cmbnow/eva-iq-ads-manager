@@ -89,6 +89,7 @@ export interface ScenarioResult {
 
 export interface AnalysisResult {
   tmv: number;
+  // tmav = Contribution per attendee: ticket marginal + F&B/head + net fee, BEFORE Opening Cost.
   tmav: number;
   fb_per_head: number;
   /** True when no F&B basis was supplied — F&B was excluded (treated as 0), not assumed. */
@@ -121,8 +122,9 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
  * Gig fixed cost (artist-deal only). Sum of itemized gig_expenses (actual ??
- * planned) when present, else the legacy single fixed_show_expenses. The nut
- * (opening_cost) and F&B are layered SEPARATELY and are not included here.
+ * planned) when present, else the legacy single fixed_show_expenses. The
+ * per-show Opening Cost (opening_cost; informally "the nut") and F&B are layered
+ * SEPARATELY and are not included here.
  * Marketing is owned by the ad engine's marketingBudget — never entered here.
  */
 export function gigFixedExpenses(i: ShowInputs): number {
@@ -417,7 +419,7 @@ function detectRiskFlags(i: ShowInputs, tmv: number, tmav: number): string[] {
   }
   if (i.historical_cpa != null && i.historical_cpa >= tmav)
     flags.push(
-      `Marketing ceiling: historical CPA ($${round2(i.historical_cpa)}) is at/above TMAV ($${round2(tmav)}) — paid acquisition is unprofitable at past efficiency.`,
+      `Marketing ceiling: historical CPA ($${round2(i.historical_cpa)}) is at/above contribution per attendee ($${round2(tmav)}) — paid acquisition is unprofitable at past efficiency.`,
     );
   if (i.target_attendance > i.conservative_attendance * 2)
     flags.push(
@@ -472,7 +474,7 @@ function buildExecutiveRecommendation(
   const t3 = Math.round(tiers[2]!.total_budget);
 
   if (i.historical_cpa != null && i.historical_cpa >= tmav)
-    return `Historical CPA ($${round2(i.historical_cpa)}) is at/above TMAV ($${round2(tmav)}). Do NOT scale paid spend at past efficiency — fix tracking/creative first or pass.`;
+    return `Historical CPA ($${round2(i.historical_cpa)}) is at/above contribution per attendee ($${round2(tmav)}). Do NOT scale paid spend at past efficiency — fix tracking/creative first or pass.`;
 
   switch (score) {
     case 'A':

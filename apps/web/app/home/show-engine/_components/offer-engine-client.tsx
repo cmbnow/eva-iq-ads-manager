@@ -768,7 +768,8 @@ export function OfferEngineClient({
               <strong className={'text-cyan-600'}>
                 {cents(blended.net_fee_per_head)}
               </strong>{' '}
-              → adds to TMAV alongside F&B. The artist never shares the fee.
+              → adds to contribution per attendee alongside F&B. The artist
+              never shares the fee.
             </p>
             {blended.warnings.map((w, i) => (
               <p key={i} className={'text-xs text-orange-500'}>
@@ -931,12 +932,15 @@ function Results({
           className={'flex flex-wrap items-center gap-x-8 gap-y-2 py-4'}
         >
           <div>
-            <p className={'text-muted-foreground text-xs'}>TMV / TMAV</p>
+            <p className={'text-muted-foreground text-xs'}>
+              Ticket marginal / Contribution per attendee
+            </p>
             <p className={'text-2xl font-bold'}>
               {dollars(r.tmv)} / {dollars(r.tmav)}
             </p>
             <p className={'text-muted-foreground text-[11px]'}>
-              TMAV = TMV {dollars(r.tmv)} + F&B {dollars(r.fb_per_head)}
+              Contribution per attendee = ticket marginal {dollars(r.tmv)} + F&B{' '}
+              {dollars(r.fb_per_head)}
               {r.net_fee_per_head ? ` + fee ${cents(r.net_fee_per_head)}` : ''}
             </p>
             {/* A5: F&B basis provenance / missing-basis notice. */}

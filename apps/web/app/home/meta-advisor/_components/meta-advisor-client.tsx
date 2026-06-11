@@ -662,8 +662,7 @@ function AdvisorPanel({ ad, account }: { ad: AdAnalysis; account: AnalysisResult
           <div className={'mt-2 rounded-md border p-3 text-xs'}>
             <div className={'flex items-center justify-between'}>
               <span className={'font-semibold'}>
-                Scaling decision (vs{' '}
-                {tmavIsZoneAware ? 'marginal value' : 'TMAV'}{' '}
+                Scaling decision (vs Contribution/attendee{' '}
                 {money(marginalTmav ?? showCtx!.tmav)}
                 {tmavIsZoneAware
                   ? ` at ${currentTicketsSold} tickets sold`

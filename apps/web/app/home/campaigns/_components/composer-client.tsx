@@ -53,7 +53,7 @@ export function ComposerClient() {
   const show = shows.find((s) => s.id === showId);
   const core = show?.result.budget_tiers[1];
   const showSummary = show
-    ? `Show "${show.showName}" (deal score ${show.result.deal_score}): recommended budget ${dollars0(core?.total_budget ?? 0)} total over ${show.inputs.days_remaining} days (~${dollars0(core?.daily_budget ?? 0)}/day), target cost-per-purchase ${dollars0(show.result.cpa_guardrails.early)}–${dollars0(show.result.cpa_guardrails.late)}, TMAV ${dollars0(show.result.tmav)}, first-party audiences`
+    ? `Show "${show.showName}" (deal score ${show.result.deal_score}): recommended budget ${dollars0(core?.total_budget ?? 0)} total over ${show.inputs.days_remaining} days (~${dollars0(core?.daily_budget ?? 0)}/day), target cost-per-purchase ${dollars0(show.result.cpa_guardrails.early)}–${dollars0(show.result.cpa_guardrails.late)}, contribution/attendee ${dollars0(show.result.tmav)}, first-party audiences`
     : undefined;
 
   useEffect(() => {

@@ -40,10 +40,10 @@ export function decideScaling(p: {
   // planning average (no live ticket count), which can't see a recoup/bonus step.
   const floorLabel = p.tmavIsZoneAware
     ? 'marginal value at current sales'
-    : 'TMAV';
+    : 'contribution per attendee (planning avg)';
   if (p.tmavIsZoneAware === false)
     caveats.push(
-      'Floor is the planning-average TMAV, not the live zone value — no current ticket count was available, so a recoup/bonus-tier step-down may not be reflected. Connect/refresh TicketTailor sales for a true floor.',
+      'Floor is the planning-average contribution per attendee, not the live zone value — no current ticket count was available, so a recoup/bonus-tier step-down may not be reflected. Connect/refresh TicketTailor sales for a true floor.',
     );
   if (
     p.frequency != null &&
@@ -82,10 +82,10 @@ export function decideScaling(p: {
       budgetChangePct: null,
       action:
         p.budgetStructure === 'CBO'
-          ? 'Hold campaign budget. Govern by cost-per-IC trend, not TMAV, until Purchase volume or an IC→purchase rate exists.'
+          ? 'Hold campaign budget. Govern by cost-per-IC trend, not contribution per attendee, until Purchase volume or an IC→purchase rate exists.'
           : "Hold this ad set's budget. Govern by cost-per-IC trend until Purchase data exists.",
       reason:
-        'On Initiate-Checkout optimization with no purchase CPA and no IC→purchase rate, TMAV guardrails cannot be applied — comparing cost-per-IC to attendee value is apples to oranges.',
+        'On Initiate-Checkout optimization with no purchase CPA and no IC→purchase rate, contribution-per-attendee guardrails cannot be applied — comparing cost-per-IC to attendee value is apples to oranges.',
       caveats,
     };
   } else {

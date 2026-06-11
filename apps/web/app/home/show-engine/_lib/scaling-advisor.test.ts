@@ -41,7 +41,7 @@ const RANK: Record<ScalingDecision['zone'], number> = {
   insufficient_data: -1,
 };
 
-const PLANNING_CAVEAT = 'planning-average TMAV';
+const PLANNING_CAVEAT = 'planning-average contribution per attendee';
 
 describe('decideScaling — zone-aware floor drives a more conservative call', () => {
   const flatTmav = analyzeShow(backend).tmav; // ~17.54
@@ -95,9 +95,10 @@ describe('decideScaling — fallback path (no live ticket count)', () => {
       liveCostPerPurchase: 12,
       tmavIsZoneAware: false,
     });
-    // flat value still drives the zone (68% -> scale), labelled honestly as TMAV
+    // flat value still drives the zone (68% -> scale), labelled honestly as
+    // contribution per attendee (planning avg)
     expect(d.zone).toBe('scale');
-    expect(d.reason).toContain('TMAV');
+    expect(d.reason).toContain('contribution per attendee');
     expect(d.reason).not.toContain('marginal value at current sales');
     // and the caveat names exactly why the floor may be wrong
     expect(d.caveats.some((c) => c.includes(PLANNING_CAVEAT))).toBe(true);

@@ -8,7 +8,9 @@ export type OfferStructure =
   | 'straight_guarantee'
   | 'backend'
   | 'hybrid'
-  | 'bonus_escalator';
+  | 'bonus_escalator'
+  | 'vs_deal'
+  | 'pure_door';
 
 export interface BonusTier {
   at_tickets: number; // bonus applies once tickets_sold >= this threshold
@@ -33,6 +35,10 @@ export interface ShowInputs {
   avg_ticket_price: number;
   offer_structure: OfferStructure;
   guarantee?: number;
+  // Promoter's profit line on the offer sheet — sits in the split point alongside
+  // the guarantee + expenses (backend/hybrid) or alongside expenses with the
+  // guarantee excluded (vs_deal/pure_door). Dollars; absent => 0.
+  promoter_profit?: number;
   backend_promoter_share?: number; // e.g. 0.80
   backend_artist_share?: number; // e.g. 0.20
   fixed_show_expenses: number;
@@ -125,6 +131,23 @@ export function gigFixedExpenses(i: ShowInputs): number {
   return i.fixed_show_expenses ?? 0;
 }
 
+/**
+ * Expenses + promoter profit — the door-split floor for vs_deal / pure_door,
+ * where the guarantee is NOT recouped before the split (per the real sheets).
+ */
+function expenseFloor(i: ShowInputs): number {
+  return gigFixedExpenses(i) + (i.promoter_profit ?? 0);
+}
+
+/**
+ * Backend / hybrid split point = guarantee + expenses + promoter profit. The real
+ * Fireside sheets prove promoter_profit sits in the split alongside the guarantee
+ * and expenses; omitting it overpays the artist by promoter_profit × artist_share.
+ */
+function splitPoint(i: ShowInputs): number {
+  return (i.guarantee ?? 0) + expenseFloor(i);
+}
+
 /*
  * A5: there is NO fabricated F&B default. F&B contribution per head is sourced
  * per-tenant (gross avg check × margin rate) and passed in on
@@ -170,10 +193,19 @@ function artistCost(attendance: number, i: ShowInputs): number {
       return guarantee;
     case 'backend':
     case 'hybrid': {
-      const splitPoint = guarantee + gigFixedExpenses(i);
-      const above = Math.max(0, ticketRevenue - splitPoint);
+      const above = Math.max(0, ticketRevenue - splitPoint(i));
       return guarantee + above * artistShare(i);
     }
+    case 'vs_deal': {
+      // Greater of the guarantee OR the door share — a MAX, not a SUM. The
+      // guarantee is NOT recouped before the split (split = expenses + profit).
+      const share =
+        Math.max(0, ticketRevenue - expenseFloor(i)) * artistShare(i);
+      return Math.max(guarantee, share);
+    }
+    case 'pure_door':
+      // Door split only, no guarantee (split = expenses + profit).
+      return Math.max(0, ticketRevenue - expenseFloor(i)) * artistShare(i);
     case 'bonus_escalator':
       // Attendance basis = tickets sold (Rod's rule); fall back to scenario figure.
       return (
@@ -207,34 +239,85 @@ export function tierTMVs(
     .filter((t) => t.bonus > 0);
 }
 
+/**
+ * Planning-view venue value per incremental ticket for a door-split deal,
+ * weighted across the band pre- vs post-split. Below the split point the venue
+ * keeps the full face; above it the venue keeps only its share. Shared by the
+ * backend and hybrid cases so neither ever returns a flat venue-keep rate that
+ * ignores the 100%-keep tickets below the split.
+ */
+function weightedSplitTMV(i: ShowInputs): number {
+  const lower = i.baseline_attendance ?? i.conservative_attendance;
+  const totalIncr = Math.max(0, i.target_attendance - lower);
+  if (totalIncr === 0) return i.avg_ticket_price;
+  const splitTickets = splitPoint(i) / i.avg_ticket_price;
+  const preTickets = Math.max(
+    0,
+    Math.min(i.target_attendance, splitTickets) - lower,
+  );
+  const postTickets = Math.max(0, totalIncr - preTickets);
+  const tmvPre = i.avg_ticket_price;
+  const tmvPost = i.avg_ticket_price * promoterShare(i);
+  return (preTickets * tmvPre + postTickets * tmvPost) / totalIncr;
+}
+
 export function calculateTMV(i: ShowInputs): number {
   switch (i.offer_structure) {
     case 'straight_guarantee':
       return i.avg_ticket_price;
     case 'backend':
-      return i.avg_ticket_price * promoterShare(i);
-    case 'hybrid': {
-      // Weighted across the incremental tickets, pre- vs post-split.
-      const lower = i.baseline_attendance ?? i.conservative_attendance;
-      const totalIncr = Math.max(0, i.target_attendance - lower);
-      if (totalIncr === 0) return i.avg_ticket_price;
-      const splitTickets =
-        ((i.guarantee ?? 0) + gigFixedExpenses(i)) / i.avg_ticket_price;
-      const preTickets = Math.max(
-        0,
-        Math.min(i.target_attendance, splitTickets) - lower,
-      );
-      const postTickets = Math.max(0, totalIncr - preTickets);
-      const tmvPre = i.avg_ticket_price;
-      const tmvPost = i.avg_ticket_price * promoterShare(i);
-      return (preTickets * tmvPre + postTickets * tmvPost) / totalIncr;
-    }
+    case 'hybrid':
+      // Weighted across the incremental tickets, pre- vs post-split. backend
+      // used to return a flat venue-keep rate, understating the below-split
+      // tickets where the venue keeps 100% — now it weights like hybrid.
+      return weightedSplitTMV(i);
     case 'bonus_escalator':
       // Threshold bonuses are discrete step costs, not amortized over a band —
       // the marginal value of an incremental ticket is the full ticket price.
       return i.avg_ticket_price;
     default:
       return i.avg_ticket_price;
+  }
+}
+
+/**
+ * Marginal venue value of the NEXT ticket at the current ticket count — zone-aware.
+ * This is what the LIVE ad-scaling decision must use (NOT calculateTMV, which is the
+ * planning/band view): below the split the venue keeps the full face, above it only
+ * its share. The vs crossover is revenue-based — tiered DOS/premium pricing moves it,
+ * so it is never a hardcoded ticket count.
+ */
+export function marginalVenueValueAtTickets(
+  currentTicketsSold: number,
+  i: ShowInputs,
+): number {
+  const price = i.avg_ticket_price;
+  const R = currentTicketsSold * price;
+  const vKeep = 1 - artistShare(i);
+  const g = i.guarantee ?? 0;
+  switch (i.offer_structure) {
+    case 'straight_guarantee':
+      return price; // venue keeps 100% always
+    case 'backend':
+    case 'hybrid':
+      return R < splitPoint(i) ? price : price * vKeep;
+    case 'vs_deal': {
+      // Where the door share overtakes the guarantee (revenue-based, not a count).
+      const aShare = artistShare(i);
+      const crossover = expenseFloor(i) + (aShare > 0 ? g / aShare : 0);
+      return R < crossover ? price : price * vKeep;
+    }
+    case 'pure_door':
+      return R < expenseFloor(i) ? price : price * vKeep;
+    case 'bonus_escalator': {
+      // Full price between tiers; a steep negative step AT a tier crossing.
+      const nextTier = tierTMVs(i)
+        .filter((t) => t.at_tickets === currentTicketsSold + 1)
+        .sort((a, b) => a.bonus - b.bonus)[0];
+      return nextTier ? price - nextTier.bonus : price;
+    }
+    default:
+      return price;
   }
 }
 
@@ -278,11 +361,11 @@ function detectRiskFlags(i: ShowInputs, tmv: number, tmav: number): string[] {
       `F&B dependency: marginal ticket value ($${round2(tmv)}) is below F&B/head ($${fb}) — profit leans on food & beverage.`,
     );
   if (i.offer_structure === 'backend' || i.offer_structure === 'hybrid') {
-    const splitPoint = (i.guarantee ?? 0) + gigFixedExpenses(i);
+    const sp = splitPoint(i);
     const expectedTicketRev = i.target_attendance * i.avg_ticket_price;
-    if (splitPoint > expectedTicketRev * 0.9)
+    if (sp > expectedTicketRev * 0.9)
       flags.push(
-        `Backend risk: split point ($${Math.round(splitPoint)}) is high vs expected ticket revenue ($${Math.round(expectedTicketRev)}).`,
+        `Backend risk: split point ($${Math.round(sp)}) is high vs expected ticket revenue ($${Math.round(expectedTicketRev)}).`,
       );
   }
   if (i.historical_cpa != null && i.historical_cpa >= tmav)

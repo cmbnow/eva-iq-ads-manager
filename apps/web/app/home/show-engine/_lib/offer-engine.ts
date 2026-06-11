@@ -352,6 +352,22 @@ export function marginalTmavAtTickets(
   );
 }
 
+/**
+ * Live tickets sold for a show = the SUM of total_issued across its TicketTailor
+ * event rows. A single show splits into multiple rows by event_role (advance +
+ * day_of_sale), so summing — not taking one row — is what avoids undercounting.
+ * Returns null on no rows or a zero sum, so the caller falls back to the flat
+ * planning TMAV rather than trusting a false 0. (Pure helper, separated from the
+ * DB query in getTicketsSoldForShow so it's unit-testable without Supabase.)
+ */
+export function sumTicketsIssued(
+  rows: { total_issued: number | null }[] | null | undefined,
+): number | null {
+  if (!rows || rows.length === 0) return null;
+  const sum = rows.reduce((s, r) => s + Number(r.total_issued ?? 0), 0);
+  return sum === 0 ? null : sum;
+}
+
 function modelScenario(
   attendance: number,
   i: ShowInputs,

@@ -9,6 +9,7 @@ import {
   gigFixedExpenses,
   marginalTmavAtTickets,
   marginalVenueValueAtTickets,
+  sumTicketsIssued,
 } from './offer-engine';
 
 /*
@@ -451,5 +452,41 @@ describe('marginalTmavAtTickets — zone-aware floor vs flat planning TMAV', () 
     };
     // one ticket before the tier: (price − bonus) + fb = (33.9 − 500) + 12
     expect(marginalTmavAtTickets(499, bonus)).toBeCloseTo(PRICE - 500 + 12, 10);
+  });
+});
+
+/*
+ * sumTicketsIssued — a show splits across multiple ticket_tailor_events rows by
+ * event_role (advance + day_of_sale), so the live tickets-sold count is the SUM
+ * across all rows for the date, never a single row (which undercounts).
+ */
+describe('sumTicketsIssued — sums all event rows, never one slice', () => {
+  it('sums an advance row AND a day_of_sale row on the same date', () => {
+    // advance 320 + day_of_sale 95 = 415 (taking one row would read 320 or 95).
+    const rows = [{ total_issued: 320 }, { total_issued: 95 }];
+    expect(sumTicketsIssued(rows)).toBe(415);
+  });
+
+  it('a single row returns that row (no behaviour change for one-row shows)', () => {
+    expect(sumTicketsIssued([{ total_issued: 240 }])).toBe(240);
+  });
+
+  it('treats null total_issued as 0 within the sum', () => {
+    expect(
+      sumTicketsIssued([{ total_issued: 200 }, { total_issued: null }]),
+    ).toBe(200);
+  });
+
+  it('returns null on no rows (-> caller falls back to flat TMAV)', () => {
+    expect(sumTicketsIssued([])).toBeNull();
+    expect(sumTicketsIssued(null)).toBeNull();
+    expect(sumTicketsIssued(undefined)).toBeNull();
+  });
+
+  it('returns null when the sum is 0 (a false 0 must not beat the flat TMAV)', () => {
+    expect(
+      sumTicketsIssued([{ total_issued: 0 }, { total_issued: 0 }]),
+    ).toBeNull();
+    expect(sumTicketsIssued([{ total_issued: null }])).toBeNull();
   });
 });

@@ -2,7 +2,11 @@
 
 import { callClaude, extractJson, getTenantContext } from '~/lib/server/ai';
 
-import { type AnalysisResult, type ShowInputs } from './offer-engine';
+import {
+  type AnalysisResult,
+  type ShowInputs,
+  sumTicketsIssued,
+} from './offer-engine';
 import { type WalkupResult, projectWalkup } from './walkup-projection';
 
 export type SavedShow = {
@@ -175,8 +179,17 @@ export async function getWalkupForShow(input: {
  * Live tickets sold to date for a show, from the D2 TicketTailor layer
  * (ticket_tailor_events.total_issued), matched to a TT event by show date — the
  * same association getWalkupForShow uses (there's no show↔TT link table yet).
- * Returns null when there's no tenant, no date, or no matching TT event, so the
- * caller falls back to the flat planning TMAV. Read-only; no schema change.
+ *
+ * A single show splits across MULTIPLE ticket_tailor_events rows by event_role
+ * (e.g. advance + day_of_sale), so we SUM total_issued across every row matching
+ * tenant_id + event_date — taking one row would undercount the show.
+ *
+ * Returns null when there's no tenant, no date, no matching rows, or the summed
+ * count is 0 (so the caller falls back to the flat planning TMAV, not a false 0).
+ * Read-only; no schema change.
+ *
+ * TODO(G3): once events map to shows via show_id, switch this to the
+ * show_ticket_actuals view (sum by show_id) instead of date-matching.
  */
 export async function getTicketsSoldForShow(
   showDate: string | null,
@@ -188,11 +201,8 @@ export async function getTicketsSoldForShow(
   const db = supabase as any;
   const { data } = await db
     .from('ticket_tailor_events')
-    .select('total_issued, event_date')
+    .select('total_issued')
     .eq('tenant_id', tenant.id)
-    .eq('event_date', showDate)
-    .limit(1)
-    .maybeSingle();
-  if (!data || data.total_issued == null) return null;
-  return Number(data.total_issued);
+    .eq('event_date', showDate);
+  return sumTicketsIssued(data);
 }
